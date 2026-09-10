@@ -34,6 +34,7 @@ import {
   saveCatalog, resetToDefaults, defaultsFor, parseCell, formatCell
 } from "./catalog.js";
 import { ICON } from "./data.js";
+import { openSeed } from "./seed.js";
 
 /* Der Wurzel-Admin steht bewusst im Code UND in den Firestore-Regeln.
    Er lässt sich über die Oberfläche nicht entfernen — sonst könnte sich
@@ -123,6 +124,11 @@ export function openAdmin(){
           <span>${adminEmails.length + 1} ${adminEmails.length ? "Personen" : "Person"}</span></span>
         ${ICON.chev}
       </button>
+      <button class="set-row" data-act="seed">
+        <span class="tx"><b>Testpatienten</b>
+          <span>Konten mit fertigen Verläufen für alle Risikostufen</span></span>
+        ${ICON.chev}
+      </button>
       <button class="set-row" data-act="reset">
         <span class="tx"><b style="color:var(--bad)">Auf Vorgaben zurücksetzen</b>
           <span>Alle Tabellen auf den Auslieferungsstand</span></span>
@@ -139,6 +145,7 @@ export function openAdmin(){
     if (a === "export") return exportXlsx();
     if (a === "import") return importXlsx();
     if (a === "admins") return openAdmins();
+    if (a === "seed")   return openSeed(openAdmin);
     if (a === "reset")  return confirmReset();
   });
 }

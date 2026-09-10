@@ -21,7 +21,7 @@
      Projekteinstellungen → Meine Apps → Web-App → SDK-Konfiguration.
    Diese Werte sind öffentlich und dürfen im Frontend stehen; der Schutz
    der Daten läuft über die Firestore-Regeln (siehe firestore.rules). */
-const FIREBASE_CONFIG = {
+export const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyADOIB5PV2CVmYXQeCl5V34gptzjUQ0dZY",
   authDomain:        "clam-cd7c5.firebaseapp.com",
   projectId:         "clam-cd7c5",
@@ -65,6 +65,7 @@ import {
   initDoctor, loadPractice, renderDoctorOnboarding, openDoctorHome,
   resolveCode, CODE_RE
 } from "./doctor.js";
+import { initSeed } from "./seed.js";
 
 const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
@@ -167,6 +168,14 @@ const LEVEL_TEXT = {
 /* Der Adminbereich bekommt Datenbank, Anmeldung und die Bausteine der
    Oberfläche gereicht, statt sie sich selbst zu besorgen — so gibt es
    weiterhin nur ein Sheet-System und einen Toast. */
+/* Der Testpatienten-Generator braucht die Konfiguration, weil er eine
+   zweite Firebase-Instanz aufmacht — sonst würde das Anlegen den Admin
+   aus seinem eigenen Konto werfen. */
+initSeed({
+  db, auth, config: FIREBASE_CONFIG,
+  ui:{ openSheet:(...a) => openSheet(...a), closeSheet:() => closeSheet(), toast:m => toast(m) }
+});
+
 initDoctor({
   db, auth,
   ui:{
@@ -391,11 +400,14 @@ async function saveDay(){
 }
 
 async function pushRiskSummary(){
-  const lastRisk = S.risk?.prob == null ? null : {
-    level:      S.risk.level,
-    prob:       Math.round(S.risk.prob * 1000) / 1000,
-    confidence: Math.round(S.risk.confidence * 100) / 100,
-    drivers:    S.risk.drivers.slice(0,3).map(d => d.id),
+  /* Die Stufe wird IMMER mitgeschrieben, auch ohne Wahrscheinlichkeit.
+     Für die Praxis ist "Baseline im Aufbau" etwas anderes als "trägt
+     nichts ein" — ohne die Stufe sähen beide gleich aus. */
+  const lastRisk = {
+    level:      S.risk?.level || "nodata",
+    prob:       S.risk?.prob == null ? null : Math.round(S.risk.prob * 1000) / 1000,
+    confidence: S.risk?.confidence == null ? null : Math.round(S.risk.confidence * 100) / 100,
+    drivers:    (S.risk?.drivers || []).slice(0,3).map(d => d.id),
     date:       S.dayKey,
     at:         new Date().toISOString()
   };

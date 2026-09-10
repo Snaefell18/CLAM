@@ -167,6 +167,7 @@ CLAM/
 ├─ catalog.js          legt den Firestore-Katalog über die Vorgaben
 ├─ admin.js            Adminbereich: Tabellen, Excel-Austausch, Adminliste
 ├─ doctor.js           Praxisansicht: Code, Patientenliste, Empfehlung
+├─ seed.js             Testpatienten mit fertigen Verläufen
 ├─ api/
 │  ├─ _claude.js       gemeinsame Basis (kein Endpunkt, führender _)
 │  ├─ assess.js        gezielte Nachfragen bei erhöhtem Risiko
@@ -242,6 +243,39 @@ Die ausgegebene Prozentzahl ist auf Plausibilität kalibriert, nicht auf
 gemessene Ereignisraten. Sie wird bewusst auf 5er-Schritte gerundet: eine
 Nachkommastelle würde eine Genauigkeit vortäuschen, die diese Kalibrierung
 nicht hat.
+
+---
+
+## Testpatienten
+
+Im Adminbereich unter *Testpatienten*. Legt sechs Konten mit fertigen Verläufen
+an, die zusammen alle Zustände der App zeigen: niedriges Risiko, erhöhtes,
+hohes, hohes mit bereits gesendeter Meldung, Baseline im Aufbau, ganz ohne
+Einträge. Anmeldung mit einem Wort plus Passwort, etwa `schub@clam.test`.
+Optional lassen sie sich beim Anlegen gleich mit einer Praxis verknüpfen —
+dann stehen alle sechs sofort in deren Liste.
+
+**Warum eine zweite Firebase-Instanz.** `createUserWithEmailAndPassword` meldet
+den Aufrufer als den *neuen* Nutzer an — auf der normalen Instanz wärst du nach
+dem ersten Testpatienten aus deinem Adminkonto geflogen. Das Anlegen läuft
+deshalb über eine zweite, benannte App-Instanz mit eigenem Auth-Zustand.
+
+Der angenehme Nebeneffekt: die Testdaten werden **als der jeweilige Patient**
+geschrieben. Es greifen also genau dieselben Firestore-Regeln wie im echten
+Betrieb — kein Dienstkonto, keine Sonderregel, und ein Fehler im
+Berechtigungsmodell würde hier sofort auffallen statt umgangen zu werden.
+
+**Warum die Verläufe nachgerechnet werden.** Feste Zahlenreihen, die „hoch"
+ergeben sollen, ergeben irgendwann nicht mehr „hoch" — spätestens, wenn du im
+Adminbereich Gewichte oder Schwellen änderst. Der Generator steigert die
+Auslenkung deshalb schrittweise und prüft nach jedem Schritt mit derselben
+`assess`-Funktion, die auch die App benutzt. Beim Szenario „erhöht" muss die
+Wahrscheinlichkeit zusätzlich im zugehörigen Band liegen, sonst stünde dort
+„Erhöht" neben 75 %, während die Schwelle für „hoch" bei 62 % liegt.
+
+Die Domain `clam.test` ist dauerhaft reserviert und wird nie an jemanden
+vergeben — Testkonten können also nie eine echte Adresse treffen. Über
+denselben Bereich lassen sie sich wieder vollständig entfernen.
 
 ---
 

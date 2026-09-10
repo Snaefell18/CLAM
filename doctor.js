@@ -52,7 +52,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
 
 const LEVEL_TEXT = {
   low:"Niedrig", elevated:"Erhöht", high:"Hoch",
-  building:"Baseline", nodata:"Keine Daten"
+  building:"Baseline läuft", nodata:"Keine Daten"
 };
 
 /* ─────────────────  1. CODE  ─────────────────
@@ -279,7 +279,7 @@ function patientRow(p){
       </span>
       <span class="val" style="color:${LEVELS[lvl]?.color || "#7C879B"}">
         ${r?.prob != null ? probPct(r.prob) + "%" : "—"}
-        <em>${esc(LEVEL_TEXT[lvl])}</em>
+        <em>${esc(LEVEL_TEXT[lvl] || "—")}</em>
       </span>
     </button>`;
 }
