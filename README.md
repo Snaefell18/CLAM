@@ -163,7 +163,9 @@ CLAM/
 ├─ index.html          Designsystem + alle Screens
 ├─ app.js              Oberfläche, Firebase, Ablauf
 ├─ risk.js             ← der Kern: Baseline und Schubrisiko
-├─ data.js             Diagnosen, Medikamente, Gelenke, Laborwerte
+├─ data.js             Vorgaben: Diagnosen, Medikamente, Gelenke, Laborwerte
+├─ catalog.js          legt den Firestore-Katalog über die Vorgaben
+├─ admin.js            Adminbereich: Tabellen, Excel-Austausch, Adminliste
 ├─ api/
 │  ├─ _claude.js       gemeinsame Basis (kein Endpunkt, führender _)
 │  ├─ assess.js        gezielte Nachfragen bei erhöhtem Risiko
@@ -238,6 +240,45 @@ Die ausgegebene Prozentzahl ist auf Plausibilität kalibriert, nicht auf
 gemessene Ereignisraten. Sie wird bewusst auf 5er-Schritte gerundet: eine
 Nachkommastelle würde eine Genauigkeit vortäuschen, die diese Kalibrierung
 nicht hat.
+
+---
+
+## Adminbereich
+
+Erscheint in den Einstellungen nur für Admins. Wurzel-Admin ist fest
+`jan.rentzsch@googlemail.com`; weitere Admins trägt er dort selbst ein. Der
+Wurzel-Admin lässt sich nicht entfernen — sonst könnte sich das Projekt
+aussperren.
+
+Pflegbar sind elf Tabellen: Erkrankungen, Medikamente, Signale, Gewichte,
+Schwellen, Laborwerte, Tages-Check, Vitalwerte, Körperregionen, Wearables und
+Steifigkeitsstufen. Also alles, worauf die Berechnung fußt.
+
+**Wie das technisch läuft.** Die Vorgaben stehen weiterhin im Code
+(`data.js`, `risk.js`). `catalog.js` legt einen in Firestore gepflegten Katalog
+darüber und überschreibt die Strukturen **an Ort und Stelle** — `CONDITIONS`,
+`SIGNALS`, `WEIGHTS` bleiben dieselben Objekte, nur ihr Inhalt wechselt.
+Dadurch funktioniert jeder bestehende Import unverändert. Fehlt der Katalog
+oder ist Firestore nicht erreichbar, läuft die App auf den Vorgaben weiter; es
+gibt keinen Zustand ohne Stammdaten.
+
+**Prüfung vor jedem Speichern.** Doppelte Kennungen, fehlende Pflichtfelder,
+Nichtzahlen in Zahlenspalten und tote Querverweise werden abgewiesen — eine
+Erkrankung, die auf ein nicht existierendes Signal zeigt, würde sonst
+stillschweigend eine Frage aus dem Tages-Check ausblenden.
+
+**Excel.** Export erzeugt eine Mappe mit einem Blatt je Tabelle; Kopfzeilen
+sind die lesbaren Beschriftungen. Der Import akzeptiert Beschriftungen und
+technische Schlüssel, prüft jedes Blatt einzeln und zeigt vor dem Übernehmen,
+was sich ändert. Blätter mit Fehlern werden übersprungen, der Rest läuft durch.
+Schlägt das Speichern fehl, wird alles zurückgerollt.
+
+SheetJS wird erst geladen, wenn jemand tatsächlich exportiert oder importiert —
+für alle, die nie in den Adminbereich kommen, fällt die Bibliothek nicht an.
+
+> **Achtung bei Gewichten und Schwellen:** Sie wirken sofort auf alle Nutzer und
+> verschieben deren angezeigtes Risiko. Bereits gespeicherte Tagesbewertungen
+> bleiben stehen, damit der Verlauf nicht rückwirkend umgeschrieben wird.
 
 ---
 

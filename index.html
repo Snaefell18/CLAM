@@ -38,10 +38,16 @@
 
   /* Risikostufen — dieselben Farben, aber eigene Namen, damit im Code
      nie "bad" für "hohes Risiko" stehen muss. */
-  --lvl-low:#12B76A;
-  --lvl-elevated:#F59E0B;
-  --lvl-high:#EF4444;
-  --lvl-none:#8A94A6;
+  /* Gedeckte Stufenfarben, gespiegelt aus LEVELS in risk.js.
+     --bad und --warn bleiben unverändert: die stehen für Fehler und
+     Warnungen in der Oberfläche, nicht für eine Risikostufe. */
+  --lvl-low:#217A54;
+  --lvl-elevated:#9C6820;
+  --lvl-high:#A8433A;
+  --lvl-none:#7C879B;
+  --lvl-low-soft:#46A181;
+  --lvl-elevated-soft:#CE9A4E;
+  --lvl-high-soft:#C86F66;
 
   --glass:rgba(255,255,255,.66);
   --glass-strong:rgba(255,255,255,.82);
@@ -311,10 +317,15 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   font-variant-numeric:tabular-nums}
 .sig .d{display:block; font-size:11.5px; font-weight:700; margin-top:3px;
   font-variant-numeric:tabular-nums}
-.sig .d.up{color:var(--bad)}
+.sig .d.up{color:var(--lvl-high)}
 .sig .d.ok{color:var(--ink-3)}
-.sig.hot{border-color:rgba(245,158,11,.55); background:rgba(255,251,242,.80)}
+.sig.hot{border-color:rgba(206,154,78,.5); background:rgba(253,250,243,.82)}
 .sig.miss b{color:var(--ink-3); font-weight:600; font-size:15px}
+/* Die Zeile bleibt auch leer stehen, damit alle Kacheln gleich hoch
+   sind — sonst springt die Rasterhöhe je nachdem, was erfasst ist. */
+.sig .d{min-height:14px}
+.sig-hint{font-size:12.5px; line-height:1.4; color:var(--ink-3); font-weight:600;
+  text-align:center; margin:12px 10px 0}
 
 /* ── Aktionsleiste unten ── */
 .actions{position:fixed; left:0; right:0; bottom:0; z-index:20;
@@ -332,10 +343,10 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   padding:15px 17px; border-radius:var(--r-md); margin-top:20px;
   color:#fff; transition:transform .15s; animation:in .45s cubic-bezier(.2,.8,.3,1)}
 .cta:active{transform:scale(.98)}
-.cta.elevated{background:linear-gradient(180deg,#FBB040,#E8890B);
-  box-shadow:0 2px 4px rgba(180,110,10,.20), 0 12px 26px rgba(180,110,10,.26)}
-.cta.high{background:linear-gradient(180deg,#F4634F,#D92D20);
-  box-shadow:0 2px 4px rgba(180,30,20,.20), 0 12px 26px rgba(180,30,20,.26)}
+.cta.elevated{background:linear-gradient(180deg,#CFA05C,#A97425);
+  box-shadow:0 2px 4px rgba(120,80,20,.16), 0 12px 26px rgba(120,80,20,.20)}
+.cta.high{background:linear-gradient(180deg,#C9736A,#A8433A);
+  box-shadow:0 2px 4px rgba(130,40,32,.16), 0 12px 26px rgba(130,40,32,.20)}
 .cta .ic{width:38px; height:38px; border-radius:12px; flex:none; display:grid; place-items:center;
   background:rgba(255,255,255,.18)}
 .cta .ic svg{width:19px; height:19px}
@@ -355,9 +366,9 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .drv-item .tx b{display:block; font-size:15px; font-weight:680; letter-spacing:-.01em}
 .drv-item .tx span{display:block; font-size:12.5px; color:var(--ink-3); margin-top:2px}
 .drv-item .val{font-size:15px; font-weight:750; font-variant-numeric:tabular-nums;
-  letter-spacing:-.02em; color:var(--bad); white-space:nowrap}
+  letter-spacing:-.02em; color:var(--lvl-high); white-space:nowrap}
 .drv-bar{height:5px; border-radius:99px; background:rgba(255,255,255,.8); margin-top:7px; overflow:hidden}
-.drv-bar span{display:block; height:100%; border-radius:99px; background:var(--warn)}
+.drv-bar span{display:block; height:100%; border-radius:99px; background:var(--lvl-elevated-soft)}
 
 /* ── Skalen-Eingabe (Schmerz, Fatigue, Befinden) ── */
 .scale{margin-bottom:22px}
@@ -457,8 +468,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .chart{position:relative; width:100%; height:172px; margin:6px 0 4px}
 .chart svg{width:100%; height:100%; overflow:visible}
 .chart .grid-l{stroke:rgba(140,170,220,.22); stroke-width:1}
-.chart .band-el{fill:rgba(245,158,11,.07)}
-.chart .band-hi{fill:rgba(239,68,68,.07)}
+.chart .band-el{fill:rgba(206,154,78,.09)}
+.chart .band-hi{fill:rgba(200,111,102,.11)}
 .chart .line{fill:none; stroke:var(--blue-600); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round}
 .chart .area{fill:url(#riskfill)}
 .chart .pt{stroke:#fff; stroke-width:2}
@@ -517,6 +528,25 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .unit-row input{flex:1; min-width:0}
 .unit-row em{font-style:normal; font-size:13px; font-weight:700; color:var(--ink-3);
   white-space:nowrap; width:52px}
+
+/* ── Tabellen im Adminbereich ──
+   Auf einem Telefon ist ein Raster mit sechs Spalten nicht bedienbar.
+   Deshalb waagerecht scrollbar zum Lesen; bearbeitet wird eine Zeile im
+   Formular. Der Rahmen darf scrollen, die Seite nicht. */
+.tbl-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -18px;
+  padding:0 18px 4px; border-radius:var(--r-md)}
+.tbl{border-collapse:collapse; width:100%; font-size:13px}
+.tbl th{text-align:left; padding:0 12px 9px; white-space:nowrap;
+  font-size:9.5px; font-weight:750; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--ink-3)}
+.tbl td{padding:11px 12px; white-space:nowrap; max-width:180px; overflow:hidden;
+  text-overflow:ellipsis; font-weight:600; color:var(--ink-2)}
+.tbl td:first-child{font-weight:700; color:var(--ink)}
+.tbl tbody tr{background:rgba(255,255,255,.66); transition:background .15s}
+.tbl tbody tr:active{background:rgba(255,255,255,.92)}
+.tbl tbody tr td:first-child{border-radius:12px 0 0 12px}
+.tbl tbody tr td:last-child{border-radius:0 12px 12px 0}
+.tbl tbody tr+tr td{box-shadow:inset 0 1px 0 rgba(140,170,220,.20)}
 
 /* ── Einstellungen ── */
 .settings-grp{margin-bottom:22px}

@@ -31,6 +31,36 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    /* Der Wurzel-Admin steht fest verdrahtet — sonst könnte sich das
+       Projekt über die Oberfläche selbst aussperren. Alle weiteren
+       Admins stehen in config/admins.
+
+       Diese Prüfung ist die verbindliche. Die gleiche Bedingung im
+       Frontend entscheidet nur, ob das Menü zu sehen ist; wer sie im
+       Browser aushebelt, kommt hier trotzdem nicht durch. */
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == 'jan.rentzsch@googlemail.com' ||
+        (exists(/databases/$(database)/documents/config/admins) &&
+         request.auth.token.email in
+           get(/databases/$(database)/documents/config/admins).data.emails)
+      );
+    }
+
+    /* Der Katalog trägt die Stammdaten der ganzen App: jede angemeldete
+       Person muss ihn lesen können, ändern darf ihn nur ein Admin. */
+    match /config/catalog {
+      allow read:  if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    /* Die Adminliste ist absichtlich NICHT allgemein lesbar — sie enthält
+       E-Mail-Adressen. Dass der Leseversuch für Nicht-Admins scheitert,
+       ist zugleich die Prüfung, mit der das Frontend den Zugang erkennt. */
+    match /config/admins {
+      allow read, write: if isAdmin();
+    }
+
     match /users/{uid} {
       allow read, write: if isOwner(uid);
 

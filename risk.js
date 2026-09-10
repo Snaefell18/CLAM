@@ -409,12 +409,21 @@ export function lastKeys(key, n){
 
 /* ─────────────────  9. DARSTELLUNG  ───────────────── */
 
+/* color = Schrift, ring = Bogen. Zwei Werte je Stufe, weil beide
+   Verschiedenes leisten müssen: die Stufenbezeichnung braucht Kontrast,
+   der Ring soll ruhig wirken.
+
+   Die Töne sind gegenüber der Signalfarbpalette entsättigt und
+   abgedunkelt — das passt zur hellen Glasoberfläche und verbessert
+   nebenbei die Lesbarkeit deutlich. Die vorherigen Werte lagen auf dem
+   Farbfeld bei 2,24:1 (grün) und 1,83:1 (amber) und rissen damit sogar
+   die 3:1-Grenze für große Schrift. Die neuen liegen bei 4,1 bis 5,1:1. */
 export const LEVELS = {
-  building: { color:"#8A94A6", ring:"#C7CFDD" },
-  nodata:   { color:"#8A94A6", ring:"#C7CFDD" },
-  low:      { color:"#12B76A", ring:"#12B76A" },
-  elevated: { color:"#F59E0B", ring:"#F59E0B" },
-  high:     { color:"#EF4444", ring:"#EF4444" }
+  building: { color:"#7C879B", ring:"#C7CFDD" },
+  nodata:   { color:"#7C879B", ring:"#C7CFDD" },
+  low:      { color:"#217A54", ring:"#46A181" },
+  elevated: { color:"#9C6820", ring:"#CE9A4E" },
+  high:     { color:"#A8433A", ring:"#C86F66" }
 };
 
 /* Abweichung als lesbarer Text: "+6 bpm" statt "z = 2.1". Der z-Wert

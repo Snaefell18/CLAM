@@ -59,6 +59,8 @@ import {
   CONDITIONS, JOINTS, DRUGS, WEARABLES, LABS, CHECKS, STIFF_STEPS,
   VITALS, ICON, SIG_ICON, LEGAL
 } from "./data.js";
+import { loadCatalog } from "./catalog.js";
+import { initAdmin, checkAdmin, openAdmin } from "./admin.js";
 
 const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
@@ -75,7 +77,8 @@ const S = {
   days:[],           // Fenster der letzten Tage — Grundlage der Baseline
   risk:null,         // Bewertung des angezeigten Tages
   obStep:0,
-  draft:{}
+  draft:{},
+  admin:false     // nur für die Sichtbarkeit des Menüs, verbindlich sind die Regeln
 };
 
 /* Wie viele Tage rückwärts geladen werden. Baseline (28) + Lag (2) +
@@ -156,6 +159,17 @@ const LEVEL_TEXT = {
   nodata:   { t:"Keine Daten", s:"Für diesen Tag liegen noch keine Werte vor." }
 };
 
+/* Der Adminbereich bekommt Datenbank, Anmeldung und die Bausteine der
+   Oberfläche gereicht, statt sie sich selbst zu besorgen — so gibt es
+   weiterhin nur ein Sheet-System und einen Toast. */
+initAdmin({
+  db, auth,
+  ui:{ openSheet:(...a) => openSheet(...a), closeSheet:() => closeSheet(), toast:m => toast(m) },
+  /* Nach einer Katalogänderung muss der Startbildschirm neu rechnen:
+     geänderte Gewichte oder Schwellen verschieben das Risiko sofort. */
+  onSaved: () => { recompute(); renderHome(); }
+});
+
 /* ─────────────────  5. AUTH  ───────────────── */
 
 let signupMode = false;
@@ -206,6 +220,12 @@ onAuthStateChanged(auth, async user => {
   }
   S.uid = user.uid;
   const snap = await getDoc(doc(db, "users", user.uid));
+  /* Katalog zuerst: Erkrankungen, Signale und Gewichte müssen stehen,
+     bevor irgendetwas gerechnet oder gezeichnet wird. Schlägt das fehl,
+     laufen die Vorgaben aus dem Code weiter. */
+  await loadCatalog(db);
+  S.admin = await checkAdmin();
+
   if (snap.exists() && snap.data().onboarded){
     S.profile = snap.data();
     await loadWindow();
@@ -607,7 +627,11 @@ function renderHome(){
 
   /* Signalkacheln. Nur, was das gewählte Wearable liefern kann plus die
      Patienteneingaben — sonst stünden dauerhaft leere Kacheln da. */
-  html += `<div class="sig-grid">${sigTiles(r)}</div>`;
+  const tiles = sigTiles(r);
+  html += `<div class="sig-grid">${tiles.html}</div>`;
+  if (tiles.missing) html += `<p class="sig-hint">${
+    tiles.missing === 1 ? "Eine Kennzahl fehlt noch" : `${tiles.missing} Kennzahlen fehlen noch`
+  } — tippe die Kachel an, um sie einzutragen.</p>`;
 
   html += `
     <div class="disclaimer">
@@ -701,6 +725,12 @@ function ctaHTML(r){
 }
 
 /* Kacheln für die einzelnen Kennzahlen. Zeigt Wert und Abweichung. */
+/* Kacheln für die einzelnen Kennzahlen. Zeigt Wert und Abweichung.
+
+   Bewusst ohne "eintragen" unter jeder leeren Kachel: neunmal dieselbe
+   Aufforderung liest sich wie ein Mängelprotokoll. Ein Strich sagt
+   dasselbe, und ein einzelner Hinweis unter dem Raster erklärt, was zu
+   tun ist. Zurück kommt deshalb auch die Zahl der Lücken. */
 function sigTiles(r){
   const wear = WEARABLES.find(w => w.id === S.profile?.wearable);
   const cond = CONDITIONS.find(c => c.id === S.profile?.condition);
@@ -709,28 +739,38 @@ function sigTiles(r){
     ...(cond?.pro || []).filter(id => SIGNALS[id])
   ];
 
-  return ids.map(id => {
+  let missing = 0;
+  const html = ids.map(id => {
     const S_ = SIGNALS[id];
     const v = S.day?.[id];
     const s = r?.signals?.[id];
-    if (!Number.isFinite(v)) return `
-      <div class="sig miss" data-id="${id}">
-        <span class="eyebrow">${esc(S_.label)}</span>
-        <b>—</b><span class="d ok">eintragen</span>
-      </div>`;
+
+    if (!Number.isFinite(v)){
+      missing++;
+      return `
+        <div class="sig miss" data-id="${id}">
+          <span class="eyebrow">${esc(S_.label)}</span>
+          <b>—</b><span class="d"></span>
+        </div>`;
+    }
 
     const shown = id === "steps" ? num(v)
                 : id === "temp"  ? v.toFixed(2).replace(".", ",")
                 : id === "sleep" ? dec1(v)
                 : Math.round(v);
     const hot = s?.active;
+    /* Ohne Baseline gibt es noch keine Abweichung. Die Zeile bleibt dann
+       leer statt einen Strich zu zeigen — der sähe aus wie ein Messwert
+       von null. */
     return `
       <div class="sig${hot ? " hot" : ""}" data-id="${id}">
         <span class="eyebrow">${esc(S_.label)}</span>
         <b>${shown}</b>
-        <span class="d ${hot ? "up" : "ok"}">${s ? deltaText(id, s) : "—"}</span>
+        <span class="d ${hot ? "up" : "ok"}">${s ? deltaText(id, s) : ""}</span>
       </div>`;
   }).join("");
+
+  return { html, missing };
 }
 
 /* ─────────────────  9. SHEET-SYSTEM  ───────────────── */
@@ -1849,6 +1889,16 @@ function openSettings(){
       </button>
     </div>
 
+    ${S.admin ? `
+      <div class="settings-grp">
+        <p class="eyebrow">Verwaltung</p>
+        <button class="set-row" data-act="admin">
+          <span class="tx"><b>Adminbereich</b>
+            <span>Erkrankungen, Signale, Gewichte, Schwellen</span></span>
+          ${ICON.chev}
+        </button>
+      </div>` : ""}
+
     <div class="settings-grp">
       <p class="eyebrow">Konto</p>
       <button class="set-row" data-act="export">
@@ -1882,6 +1932,7 @@ function openSettings(){
 
   $$(".set-row", $("#sheet-body")).forEach(el => el.onclick = () => {
     const a = el.dataset.act;
+    if (a === "admin")    return openAdmin();
     if (a === "privacy" || a === "terms") return openLegal(a);
     if (a === "labs")     return openLabs();
     if (a === "ingest")   return openIngest();
