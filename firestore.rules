@@ -9,9 +9,11 @@ rules_version = '2';
    Freigabe zwischen Konten, keinen Lesezugriff für Praxen und keine
    öffentlichen Sammlungen.
 
-   Die Praxis bekommt ihren Bericht per Mail, nicht per Datenbankzugriff.
-   Das ist Absicht: ein Praxiszugang wäre ein Berechtigungsmodell, das
-   sich ohne echte Rollenverwaltung nicht sicher abbilden lässt.
+   Seit der Praxisansicht gibt es einen zweiten Zugriffsweg: eine Praxis
+   sieht die Daten der Patienten, die sie über ihren Code freigeschaltet
+   haben. Die Verknüpfung steht im Patientendokument — den Zugriff
+   erteilt also der Patient und kann ihn jederzeit wieder lösen. Fotos
+   bleiben davon ausgenommen.
 
    Der Ingest-Endpunkt (/api/ingest) schreibt mit dem Admin-SDK und
    umgeht diese Regeln — das ist der einzige Weg an den Daten vorbei und
@@ -61,22 +63,70 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    /* ─────────────────  PRAXIS  ─────────────────
+       Praxisstammdaten sind Geschäftskontaktdaten, keine Patientendaten.
+       Jede angemeldete Person darf sie lesen — sonst könnte ein Patient
+       vor dem Verknüpfen nicht sehen, WEN er da freischaltet. Schreiben
+       darf nur die Praxis selbst. */
+    match /doctors/{uid} {
+      allow read:  if request.auth != null;
+      allow write: if isOwner(uid);
+    }
+
+    /* Nachschlagetabelle Code → Praxis. Lesbar für Angemeldete, damit ein
+       Patient seinen Code auflösen kann. Anlegen darf ihn nur die Praxis
+       für sich selbst, und ein einmal vergebener Code lässt sich nicht
+       auf eine andere Praxis umbiegen. */
+    match /codes/{code} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.doctorUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.doctorUid == request.auth.uid;
+    }
+
+    /* Ist diese Person die Praxis, die der Patient freigeschaltet hat?
+       Die Verknüpfung steht im Patientendokument — den Zugriff erteilt
+       also der Patient, nicht die Praxis. Löst er sie, endet der Zugriff
+       mit dem nächsten Lesevorgang. */
+    function linkedDoctor(uid) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.doctorUid
+             == request.auth.uid;
+    }
+
     match /users/{uid} {
-      allow read, write: if isOwner(uid);
+      /* Die zweite Bedingung trägt zugleich die Abfrage der Praxis
+         (where doctorUid == eigene uid): Firestore prüft die Regel gegen
+         jedes Ergebnis, und die Einschränkung stellt sicher, dass nur
+         verknüpfte Patienten zurückkommen. */
+      allow read: if isOwner(uid)
+                  || (request.auth != null && resource.data.doctorUid == request.auth.uid);
+      allow write: if isOwner(uid);
 
       /* Der Ingest-Token darf vom Client gesetzt werden — er wird dort
          erzeugt. Er ist ein Zufallswert und kein Geheimnis, das der
          Server vergibt. */
 
       match /days/{dayKey} {
-        allow read, write: if isOwner(uid);
+        /* Die Praxis liest den Verlauf, schreibt aber nie hinein. Was in
+           der App steht, bleibt die Darstellung des Patienten. */
+        allow read:  if isOwner(uid) || linkedDoctor(uid);
+        allow write: if isOwner(uid);
       }
 
       match /photos/{photoId} {
         /* Die Fotos liegen als Base64 hier statt in Firebase Storage:
            Storage verlangt den Blaze-Plan, Firestore genügt für diesen
            Zweck. Ein Bild je Dokument, damit das Tagesdokument klein
-           bleibt und beim Start schnell lädt. */
+           bleibt und beim Start schnell lädt.
+
+           Bewusst NICHT für die Praxis freigegeben: Bilder von Händen
+           sind biometrienah und lassen sich nicht anonymisieren. Die
+           Praxis sieht den Befundtext aus dem Tagesdokument, nicht das
+           Bild. Wer die Aufnahme selbst zeigen will, tut das im
+           Sprechzimmer. */
         allow read, write: if isOwner(uid);
       }
 

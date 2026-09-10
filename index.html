@@ -529,6 +529,58 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .unit-row em{font-style:normal; font-size:13px; font-weight:700; color:var(--ink-3);
   white-space:nowrap; width:52px}
 
+/* ── Praxisansicht ── */
+.role-seg{margin:0 0 20px}
+.role-seg button{font-size:14.5px}
+
+/* Der Code wird im Sprechzimmer vorgelesen und weitergegeben. Deshalb
+   groß, weit gesperrt und mit einem Griff kopiert. */
+.code-card{display:flex; align-items:center; gap:14px; width:100%; text-align:left;
+  padding:17px 19px; border-radius:var(--r-lg); margin-top:4px;
+  background:linear-gradient(160deg, rgba(10,110,234,.94), rgba(27,182,192,.92));
+  box-shadow:0 2px 5px rgba(10,80,160,.18), 0 14px 30px rgba(10,80,160,.22);
+  transition:transform .15s}
+.code-card:active{transform:scale(.985)}
+.code-card .tx{flex:1; min-width:0}
+.code-card .eyebrow{color:rgba(255,255,255,.78)}
+.code-card b{display:block; margin-top:5px; color:#fff; font-size:27px; font-weight:800;
+  letter-spacing:.10em; font-variant-numeric:tabular-nums}
+/* Der Knopf steht neben der Zeile, nicht darüber: bricht die Überschrift
+   um, schöbe er sich sonst über den Code. */
+.code-card .cp{display:inline-flex; align-items:center; gap:6px; flex:none;
+  align-self:center;
+  padding:9px 14px; border-radius:99px; background:rgba(255,255,255,.20); color:#fff;
+  font-size:12.5px; font-weight:700; white-space:nowrap}
+.code-card .cp svg{width:12px; height:12px}
+
+.doc-stats{display:grid; grid-template-columns:repeat(2,1fr); gap:9px; margin-top:14px}
+.doc-stats .stat{padding:14px 15px; border-radius:var(--r-md); background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glass-line); box-shadow:var(--shadow-s)}
+.doc-stats .stat b{display:block; font-size:24px; font-weight:800; letter-spacing:-.03em;
+  margin-top:4px; font-variant-numeric:tabular-nums}
+
+/* Patientenzeilen: untereinander, anklickbar, Zustand links als Punkt,
+   Risiko rechts. Auf einen Blick sortierbar, ohne zu lesen. */
+.pat-row{display:flex; align-items:center; gap:13px; width:100%; text-align:left;
+  padding:14px 15px; border-radius:var(--r-md); background:rgba(255,255,255,.72);
+  border:1px solid rgba(255,255,255,.9); box-shadow:var(--shadow-s);
+  transition:transform .14s}
+.pat-row+.pat-row{margin-top:8px}
+.pat-row:active{transform:scale(.985)}
+.pat-row .dot{width:11px; height:11px; border-radius:50%; flex:none}
+.pat-row .tx{flex:1; min-width:0}
+.pat-row .tx b{display:block; font-size:15.5px; font-weight:700; letter-spacing:-.01em}
+.pat-row .tx span{display:block; font-size:12.5px; color:var(--ink-3); margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pat-row .tx .ago{font-size:11.5px; margin-top:1px}
+.pat-row .val{flex:none; text-align:right; font-size:17px; font-weight:800;
+  letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.pat-row .val em{display:block; font-style:normal; font-size:10.5px; font-weight:750;
+  letter-spacing:.06em; text-transform:uppercase; margin-top:2px; opacity:.85}
+
+#s-doc{padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
+
 /* ── Tabellen im Adminbereich ──
    Auf einem Telefon ist ein Raster mit sechs Spalten nicht bedienbar.
    Deshalb waagerecht scrollbar zum Lesen; bearbeitet wird eine Zeile im
@@ -731,6 +783,13 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <p class="sub">Veränderungen früh erkennen. Rechtzeitig abklären lassen.</p>
     </div>
 
+    <!-- Rollenwahl. Steht über den Feldern, weil sie entscheidet, was
+         nach der Anmeldung passiert — nicht darunter als Nachgedanke. -->
+    <div class="seg role-seg" id="li-role">
+      <button data-role="patient" class="on">Ich bin Patient</button>
+      <button data-role="doctor">Ich bin Praxis</button>
+    </div>
+
     <div class="glass card">
       <div class="field">
         <label for="li-mail">E-Mail</label>
@@ -809,6 +868,27 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <button class="btn btn-glass btn-sm" id="a-photo">Foto</button>
       </div>
     </div>
+  </section>
+
+
+  <!-- ══════════ PRAXIS: ERSTEINRICHTUNG ══════════ -->
+  <section class="screen" id="s-doc-ob">
+    <div class="ob-head">
+      <p class="eyebrow">Praxis einrichten</p>
+      <h1 style="margin-top:6px">Deine Praxisdaten</h1>
+      <p class="sub">Einmal ausfüllen. Danach bekommst du einen Code für
+         deine Patientinnen und Patienten.</p>
+    </div>
+    <div class="ob-body" id="doc-ob-body"></div>
+    <div class="ob-foot">
+      <button class="btn btn-primary" id="doc-ob-save">Praxis anlegen</button>
+    </div>
+  </section>
+
+  <!-- ══════════ PRAXIS: ÜBERSICHT ══════════ -->
+  <section class="screen" id="s-doc">
+    <div class="top" id="doc-head"></div>
+    <div id="doc-body"></div>
   </section>
 
 </div>

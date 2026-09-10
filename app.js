@@ -61,6 +61,10 @@ import {
 } from "./data.js";
 import { loadCatalog } from "./catalog.js";
 import { initAdmin, checkAdmin, openAdmin } from "./admin.js";
+import {
+  initDoctor, loadPractice, renderDoctorOnboarding, openDoctorHome,
+  resolveCode, CODE_RE
+} from "./doctor.js";
 
 const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
@@ -78,7 +82,8 @@ const S = {
   risk:null,         // Bewertung des angezeigten Tages
   obStep:0,
   draft:{},
-  admin:false     // nur für die Sichtbarkeit des Menüs, verbindlich sind die Regeln
+  admin:false,    // nur für die Sichtbarkeit des Menüs, verbindlich sind die Regeln
+  doctor:false
 };
 
 /* Wie viele Tage rückwärts geladen werden. Baseline (28) + Lag (2) +
@@ -162,6 +167,17 @@ const LEVEL_TEXT = {
 /* Der Adminbereich bekommt Datenbank, Anmeldung und die Bausteine der
    Oberfläche gereicht, statt sie sich selbst zu besorgen — so gibt es
    weiterhin nur ein Sheet-System und einen Toast. */
+initDoctor({
+  db, auth,
+  ui:{
+    openSheet:(...a) => openSheet(...a),
+    closeSheet:() => closeSheet(),
+    toast:m => toast(m),
+    screen:id => screen(id)
+  },
+  onSignOut: () => signOut(auth).then(closeSheet)
+});
+
 initAdmin({
   db, auth,
   ui:{ openSheet:(...a) => openSheet(...a), closeSheet:() => closeSheet(), toast:m => toast(m) },
@@ -171,6 +187,24 @@ initAdmin({
 });
 
 /* ─────────────────  5. AUTH  ───────────────── */
+
+/* Die Rollenwahl liegt lokal, damit der Login-Screen sie beim nächsten
+   Start noch weiß. Verbindlich ist sie nur beim ERSTEN Anmelden: danach
+   entscheidet allein, welches Dokument existiert. */
+const ROLE_KEY = "clam-role";
+let loginRole = (() => {
+  try { return localStorage.getItem(ROLE_KEY) === "doctor" ? "doctor" : "patient"; }
+  catch { return "patient"; }
+})();
+
+$$("#li-role button").forEach(b => {
+  b.classList.toggle("on", b.dataset.role === loginRole);
+  b.onclick = () => {
+    loginRole = b.dataset.role;
+    try { localStorage.setItem(ROLE_KEY, loginRole); } catch {}
+    $$("#li-role button").forEach(x => x.classList.toggle("on", x === b));
+  };
+});
 
 let signupMode = false;
 
@@ -219,11 +253,35 @@ onAuthStateChanged(auth, async user => {
     return;
   }
   S.uid = user.uid;
-  const snap = await getDoc(doc(db, "users", user.uid));
+
   /* Katalog zuerst: Erkrankungen, Signale und Gewichte müssen stehen,
      bevor irgendetwas gerechnet oder gezeichnet wird. Schlägt das fehl,
      laufen die Vorgaben aus dem Code weiter. */
   await loadCatalog(db);
+
+  /* ── Weiche Praxis / Patient ──
+     Nicht die Auswahl auf dem Login entscheidet, sondern welches
+     Dokument es gibt: wer einmal als Praxis angelegt ist, landet auch
+     dann in der Praxisansicht, wenn der Schalter auf Patient stand.
+     Die Auswahl zählt nur, wenn es noch gar kein Konto gibt. */
+  const [dsnap, snap] = await Promise.all([
+    getDoc(doc(db, "doctors", user.uid)),
+    getDoc(doc(db, "users",   user.uid))
+  ]);
+
+  const isDoctor = dsnap.exists() ||
+    (!snap.exists() && loginRole === "doctor");
+
+  if (isDoctor){
+    S.doctor = true;
+    await loadPractice(db, user.uid);
+    if (dsnap.exists()) await openDoctorHome();
+    else { renderDoctorOnboarding(); screen("s-doc-ob"); }
+    hideBoot();
+    return;
+  }
+
+  S.doctor = false;
   S.admin = await checkAdmin();
 
   if (snap.exists() && snap.data().onboarded){
@@ -323,6 +381,26 @@ async function saveDay(){
   S.days.sort((a,b) => a.key.localeCompare(b.key));
 
   await setDoc(doc(db, "users", S.uid, "days", S.dayKey), S.day, { merge:true });
+
+  /* Ist eine Praxis verknüpft, wandert eine Kurzfassung ins Nutzer-
+     dokument. Damit kostet die Patientenliste dort eine einzige Abfrage
+     statt einen ganzen Verlauf je Patient. Ohne Verknüpfung wird nichts
+     geschrieben — die Zusammenfassung existiert nur, weil jemand sie
+     sehen darf. */
+  if (S.profile?.doctorUid && viewingToday()) await pushRiskSummary();
+}
+
+async function pushRiskSummary(){
+  const lastRisk = S.risk?.prob == null ? null : {
+    level:      S.risk.level,
+    prob:       Math.round(S.risk.prob * 1000) / 1000,
+    confidence: Math.round(S.risk.confidence * 100) / 100,
+    drivers:    S.risk.drivers.slice(0,3).map(d => d.id),
+    date:       S.dayKey,
+    at:         new Date().toISOString()
+  };
+  try { await setDoc(doc(db, "users", S.uid), { lastRisk }, { merge:true }); }
+  catch { /* nicht kritisch: die Praxis sieht dann den vorherigen Stand */ }
 }
 
 /* Werte in den angezeigten Tag schreiben und speichern. */
@@ -1882,8 +1960,15 @@ function openSettings(){
 
     <div class="settings-grp">
       <p class="eyebrow">Praxis</p>
+      <button class="set-row" data-act="link">
+        <span class="tx"><b>Praxis verknüpfen</b>
+          <span>${S.profile.doctorCode
+            ? esc(`${S.profile.doctorName || "Praxis"} · ${S.profile.doctorCode}`)
+            : "Code aus deiner Praxis eintragen"}</span></span>
+        ${ICON.chev}
+      </button>
       <button class="set-row" data-act="practice">
-        <span class="tx"><b>Praxisdaten</b>
+        <span class="tx"><b>Praxisdaten für den Bericht</b>
           <span>${esc(S.profile.practice?.name || "nicht hinterlegt")}</span></span>
         ${ICON.chev}
       </button>
@@ -1932,6 +2017,7 @@ function openSettings(){
 
   $$(".set-row", $("#sheet-body")).forEach(el => el.onclick = () => {
     const a = el.dataset.act;
+    if (a === "link")     return openLink();
     if (a === "admin")    return openAdmin();
     if (a === "privacy" || a === "terms") return openLegal(a);
     if (a === "labs")     return openLabs();
@@ -2036,6 +2122,151 @@ function openEdit(what){
     }
     try { await saveProfile(); renderHome(); closeSheet(); toast("Gespeichert."); }
     catch { $("#ed-save").disabled = false; toast("Speichern fehlgeschlagen."); }
+  };
+}
+
+/* ─────────────────  VERKNÜPFUNG MIT DER PRAXIS  ─────────────────
+   Die Richtung ist bewusst so: den Zugriff erteilt der Patient, indem er
+   den Code einträgt, und er kann ihn jederzeit wieder lösen. Eine Praxis
+   kann sich niemandem selbst zuordnen. Genauso steht es in den
+   Firestore-Regeln; das hier ist die bequeme Fassung davon. */
+
+function openLink(){
+  const linked = !!S.profile.doctorUid;
+
+  if (linked){
+    return openSheetLinked();
+  }
+
+  openSheet("Praxis verknüpfen", `
+    <p class="sub" style="margin-bottom:18px">Deine Praxis hat einen Code nach
+       dem Muster <b>CLAB1234</b>. Trägst du ihn hier ein, kann sie deinen
+       Verlauf und dein aktuelles Risiko sehen.</p>
+
+    <div class="field">
+      <label for="lk-code">Praxiscode</label>
+      <input id="lk-code" type="text" inputmode="text" autocapitalize="characters"
+             maxlength="8" placeholder="CLAB1234"
+             style="text-transform:uppercase;letter-spacing:.10em;font-weight:700">
+    </div>
+    <div id="lk-out"></div>
+
+    <div class="disclaimer">
+      ${ICON.info}
+      <p>Die Praxis sieht danach deine Kennzahlen, deinen Verlauf, deine
+         Tages-Checks und die Befunde deiner Fotos — nicht die Fotos selbst.
+         Du kannst die Verknüpfung jederzeit wieder lösen, dann endet der
+         Zugriff sofort.</p>
+    </div>`, `
+    <button class="btn btn-primary" id="lk-check" disabled>Code prüfen</button>`);
+
+  const input = $("#lk-code");
+  input.oninput = () => {
+    input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    $("#lk-check").disabled = !CODE_RE.test(input.value);
+  };
+
+  $("#lk-check").onclick = async () => {
+    $("#lk-check").disabled = true;
+    $("#lk-out").innerHTML = `<div class="analyzing"><span class="spin"></span>
+      Code wird geprüft …</div>`;
+    const r = await resolveCode(db, input.value);
+    if (!r.ok){
+      $("#lk-out").innerHTML = `<p class="note" style="color:var(--bad)">${
+        r.reason === "unknown" ? "Diesen Code gibt es nicht. Bitte in der Praxis nachfragen."
+        : r.reason === "offline" ? "Keine Verbindung. Bitte später erneut versuchen."
+        : "Das Muster stimmt nicht — erwartet werden zwei Buchstaben und vier Ziffern."}</p>`;
+      $("#lk-check").disabled = false;
+      return;
+    }
+    confirmLink(r);
+  };
+}
+
+/* Bestätigung mit Namen: wer verknüpft, soll sehen, WEN er da freischaltet.
+   Der Name für die Praxisliste wird hier gleich miterfasst — dort steht
+   sonst nur eine Kennung, mit der niemand etwas anfangen kann. */
+function confirmLink(r){
+  $("#lk-out").innerHTML = `
+    <div class="glass card" style="margin-top:16px">
+      <p class="eyebrow">Gefundene Praxis</p>
+      <h3 style="margin-top:6px">${esc(r.practice.name || "Praxis")}</h3>
+      <p class="sub">${esc([r.practice.physician, r.practice.specialty]
+        .filter(Boolean).join(" · "))}</p>
+      <p class="sub" style="margin-top:4px">${esc([r.practice.street,
+        [r.practice.zip, r.practice.city].filter(Boolean).join(" ")]
+        .filter(Boolean).join(", "))}</p>
+    </div>
+    <div class="field" style="margin-top:16px">
+      <label for="lk-name">Dein Name für die Praxisliste</label>
+      <input id="lk-name" type="text" placeholder="Vor- und Nachname"
+             value="${esc(S.profile.linkName || "")}">
+      <p class="hint">Damit dich die Praxis in ihrer Übersicht zuordnen kann.</p>
+    </div>`;
+
+  $("#sheet-foot").innerHTML = `
+    <button class="btn btn-primary" id="lk-go">Verknüpfung bestätigen</button>
+    <button class="btn btn-ghost" id="lk-cancel">Abbrechen</button>`;
+  $("#lk-cancel").onclick = openLink;
+  $("#lk-go").onclick = async () => {
+    const name = $("#lk-name").value.trim();
+    if (!name) return toast("Bitte einen Namen eintragen.");
+    $("#lk-go").disabled = true;
+    try {
+      Object.assign(S.profile, {
+        doctorUid:  r.uid,
+        doctorCode: r.code,
+        doctorName: r.practice.name || null,
+        linkName:   name,
+        linkedAt:   new Date().toISOString()
+      });
+      await saveProfile();
+      await pushRiskSummary();
+      closeSheet();
+      toast("Praxis verknüpft.");
+    } catch {
+      $("#lk-go").disabled = false;
+      toast("Verknüpfen fehlgeschlagen.");
+    }
+  };
+}
+
+function openSheetLinked(){
+  openSheet("Praxis verknüpft", `
+    <div class="glass card">
+      <p class="eyebrow">Verknüpft mit</p>
+      <h3 style="margin-top:6px">${esc(S.profile.doctorName || "Praxis")}</h3>
+      <p class="sub">Code ${esc(S.profile.doctorCode)}${S.profile.linkedAt
+        ? ` · seit ${esc(longDate(S.profile.linkedAt.slice(0,10)))}` : ""}</p>
+      <p class="sub" style="margin-top:10px">Angezeigt wirst du dort als
+        <b>${esc(S.profile.linkName || "—")}</b>.</p>
+    </div>
+    <div class="disclaimer">
+      ${ICON.info}
+      <p>Die Praxis sieht deine Kennzahlen, deinen Verlauf, deine Tages-Checks
+         und die Befunde deiner Fotos — nicht die Fotos selbst. Löst du die
+         Verknüpfung, endet der Zugriff sofort.</p>
+    </div>`, `
+    <button class="btn btn-glass btn-sm" id="lk-off" style="color:var(--bad)">
+      Verknüpfung lösen</button>`);
+
+  $("#lk-off").onclick = async () => {
+    $("#lk-off").disabled = true;
+    try {
+      Object.assign(S.profile, {
+        doctorUid:null, doctorCode:null, doctorName:null, linkedAt:null
+      });
+      /* lastRisk mit weg: die Zusammenfassung existierte nur, damit die
+         Praxis sie sieht. Ohne Verknüpfung hat sie dort nichts verloren. */
+      await setDoc(doc(db, "users", S.uid), {
+        doctorUid:null, doctorCode:null, doctorName:null, linkedAt:null, lastRisk:null
+      }, { merge:true });
+      closeSheet();
+      toast("Verknüpfung gelöst.");
+    } catch {
+      $("#lk-off").disabled = false;
+      toast("Das hat nicht geklappt.");
+    }
   };
 }
 

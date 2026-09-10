@@ -166,11 +166,13 @@ CLAM/
 ├─ data.js             Vorgaben: Diagnosen, Medikamente, Gelenke, Laborwerte
 ├─ catalog.js          legt den Firestore-Katalog über die Vorgaben
 ├─ admin.js            Adminbereich: Tabellen, Excel-Austausch, Adminliste
+├─ doctor.js           Praxisansicht: Code, Patientenliste, Empfehlung
 ├─ api/
 │  ├─ _claude.js       gemeinsame Basis (kein Endpunkt, führender _)
 │  ├─ assess.js        gezielte Nachfragen bei erhöhtem Risiko
 │  ├─ photo.js         Auswertung der Gelenkfotos
 │  ├─ report.js        Bericht für die Praxis
+│  ├─ advice.js        Empfehlung für die Praxis
 │  └─ ingest.js        Apple-Kurzbefehl → Firestore
 ├─ firestore.rules     Zugriffsregeln
 ├─ tools-make-icons.mjs  erzeugt den PNG-Iconsatz aus der Vektormarke
@@ -240,6 +242,44 @@ Die ausgegebene Prozentzahl ist auf Plausibilität kalibriert, nicht auf
 gemessene Ereignisraten. Sie wird bewusst auf 5er-Schritte gerundet: eine
 Nachkommastelle würde eine Genauigkeit vortäuschen, die diese Kalibrierung
 nicht hat.
+
+---
+
+## Praxisansicht
+
+Beim Login wählt man **Patient** oder **Praxis**. Nach dem ersten Anmelden
+entscheidet aber nicht mehr die Auswahl, sondern welches Dokument existiert:
+wer als Praxis angelegt ist, landet dort auch dann, wenn der Schalter auf
+Patient stand. Der Patiententeil ist unverändert geblieben — eigener Screen,
+eigenes Modul, eigene Sammlungen.
+
+**Einrichtung.** Die Praxis trägt einmal ihre Stammdaten ein und bekommt einen
+Code nach dem Muster `CLyyxxxx` — zwei Buchstaben, vier Ziffern. `I` und `O`
+kommen nicht vor: am Telefon vorgelesen sind sie von `1` und `0` nicht zu
+unterscheiden, und dieser Code wird vorgelesen. Vor der Vergabe wird geprüft,
+ob er frei ist.
+
+**Verknüpfung.** Der Patient trägt den Code unter *Einstellungen → Praxis
+verknüpfen* ein, sieht vor der Bestätigung, welche Praxis er da freischaltet,
+und hinterlegt seinen Namen für die Patientenliste. Die Richtung ist bewusst
+so: **den Zugriff erteilt der Patient, nicht die Praxis**, und er kann ihn
+jederzeit wieder lösen. Genauso steht es in den Firestore-Regeln.
+
+**Was die Praxis sieht.** Kennzahlen, Verlauf, Tages-Checks, Laborwerte und die
+Befundtexte der Fotos — **nicht die Fotos selbst**. Bilder von Händen sind
+biometrienah und lassen sich nicht anonymisieren; wer die Aufnahme zeigen will,
+tut das im Sprechzimmer.
+
+Die Übersicht liest nur die Nutzerdokumente: der Patient schreibt bei jedem
+Speichern eine Kurzfassung seines Risikos mit, damit die Liste eine einzige
+Abfrage kostet statt einen Verlauf je Patient. Gelöst der Patient die
+Verknüpfung, wird die Kurzfassung mitgelöscht — sie existierte nur, weil
+jemand sie sehen durfte. Sortiert wird nach Dringlichkeit, nicht alphabetisch.
+
+**Empfehlung.** Pro Patient auf Knopfdruck über `/api/advice`. Zielgruppe ist
+hier ärztliches Personal, der Text darf also fachlich werden. Er bleibt
+Entscheidungsunterstützung: keine Dosierungen, keine Verordnung, keine
+Diagnose, und die Grenzen der Datengrundlage stehen drin.
 
 ---
 
