@@ -56,6 +56,13 @@
 }
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+
+/* Grundgröße für Inline-Symbole. Die SVGs in data.js bringen bewusst
+   keine width/height mit, damit jede Komponente sie selbst setzen kann
+   — ohne diese Regel füllt so ein SVG aber den ganzen verfügbaren
+   Platz. Steht ganz oben, damit jede Komponentenregel weiter unten sie
+   bei gleicher Spezifität übersteuert. */
+svg.i{width:16px; height:16px; flex:none}
 html,body{height:100%}
 body{
   margin:0; font-family:var(--font); color:var(--ink);
@@ -501,7 +508,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .set-row .tx b{display:block; font-size:15px; font-weight:650; letter-spacing:-.01em}
 .set-row .tx span{display:block; font-size:12.5px; color:var(--ink-3); margin-top:2px; line-height:1.35}
 .set-row .val{font-size:13.5px; font-weight:700; color:var(--blue-600); white-space:nowrap}
-.set-row svg.chev{width:13px; height:13px; opacity:.5; flex:none}
+.set-row>svg{width:13px; height:13px; opacity:.5; flex:none}
 
 /* Schalter */
 .sw{width:50px; height:30px; border-radius:99px; background:rgba(140,170,220,.40); flex:none;
