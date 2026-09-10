@@ -22,12 +22,12 @@
    Diese Werte sind öffentlich und dürfen im Frontend stehen; der Schutz
    der Daten läuft über die Firestore-Regeln (siehe firestore.rules). */
 const FIREBASE_CONFIG = {
-  apiKey:            "HIER_FIREBASE_API_KEY",
-  authDomain:        "clam-app.firebaseapp.com",
-  projectId:         "clam-app",
-  storageBucket:     "clam-app.firebasestorage.app",
-  messagingSenderId: "HIER_SENDER_ID",
-  appId:             "HIER_APP_ID"
+  apiKey:            "AIzaSyADOIB5PV2CVmYXQeCl5V34gptzjUQ0dZY",
+  authDomain:        "clam-cd7c5.firebaseapp.com",
+  projectId:         "clam-cd7c5",
+  storageBucket:     "clam-cd7c5.firebasestorage.app",
+  messagingSenderId: "493181047122",
+  appId:             "1:493181047122:web:7ffaae5f83384625322a8b"
 };
 
 /* Serverless-Proxys für die Claude-API. Der API-Key gehört NIE ins

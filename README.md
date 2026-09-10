@@ -22,8 +22,8 @@ Abweichungen vom individuellen Normal und macht daraus eine Handlung.
 
 ## Was ich von dir brauche
 
-Punkt 1 ist erledigt — mit einer Einschränkung, die du kennen solltest.
-Ohne die Punkte 2 bis 4 läuft die App nicht, die letzten beiden sind Komfort.
+Punkt 1 ist erledigt, Punkt 2 halb. Ohne 2 bis 4 läuft die App nicht,
+die letzten beiden sind Komfort.
 
 ### 1. Logo · **erledigt, mit einer Einschränkung**
 
@@ -52,42 +52,26 @@ die Bewegung sagt genau das, was die App tut.
 Einzelheiten und die Farbwerte stehen in `icons/README.md`.
 Icons neu erzeugen: `npm i playwright && node tools-make-icons.mjs`.
 
-### 2. Firebase-Projekt · **erforderlich**
+### 2. Firebase-Projekt · **Config eingetragen, Rest offen**
 
-1. Auf [console.firebase.google.com](https://console.firebase.google.com) ein
-   Projekt anlegen (z. B. `clam-app`).
-2. **Authentication** → Anmeldemethoden **E-Mail/Passwort** und **Google**
+Die SDK-Konfiguration für `clam-cd7c5` steht in `app.js`. Diese Werte dürfen
+öffentlich im Frontend stehen — so ist Firebase gebaut, der Schutz läuft über
+die Regeln.
+
+Offen in der Firebase-Konsole:
+
+1. **Authentication** → Anmeldemethoden **E-Mail/Passwort** und **Google**
    aktivieren.
-3. **Firestore Database** anlegen, Modus *Production*.
-4. **Storage** aktivieren (für die Fotos).
-5. **Projekteinstellungen → Meine Apps → Web-App** hinzufügen und die
-   SDK-Konfiguration kopieren.
-
-Diese sechs Werte trägst du oben in `app.js` bei `FIREBASE_CONFIG` ein:
-
-```js
-const FIREBASE_CONFIG = {
-  apiKey:            "…",
-  authDomain:        "clam-app.firebaseapp.com",
-  projectId:         "clam-app",
-  storageBucket:     "clam-app.firebasestorage.app",
-  messagingSenderId: "…",
-  appId:             "…"
-};
-```
-
-Diese Werte dürfen öffentlich im Frontend stehen — das ist bei Firebase so
-vorgesehen. Der Schutz läuft über die Regeln in Schritt 3.
-
-Danach die Sicherheitsregeln einspielen:
+2. **Firestore Database** anlegen, Modus *Production*.
+3. **Storage** aktivieren (für die Fotos).
+4. Regeln einspielen:
 
 ```bash
 firebase deploy --only firestore:rules,storage
 ```
 
-Die Regeln liegen in `firestore.rules` und `storage.rules` und sind bewusst
-streng: **jeder kommt nur an die eigenen Daten**, keine Ausnahme, kein
-Praxiszugang über die Datenbank.
+`firestore.rules` und `storage.rules` sind bewusst streng: **jeder kommt nur an
+die eigenen Daten**, kein Praxiszugang über die Datenbank.
 
 ### 3. Claude-API-Key · **erforderlich**
 
