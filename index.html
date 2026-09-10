@@ -63,6 +63,11 @@
    Platz. Steht ganz oben, damit jede Komponentenregel weiter unten sie
    bei gleicher Spezifität übersteuert. */
 svg.i{width:16px; height:16px; flex:none}
+
+/* Das hidden-Attribut schlägt jede Anzeigeregel. Ohne das hier gewinnt
+   z. B. .preview{display:block} gegen das ausgeblendete Vorschaubild,
+   und im Fotoblatt stand eine leere zweite Kachel unter der Kamera. */
+[hidden]{display:none !important}
 html,body{height:100%}
 body{
   margin:0; font-family:var(--font); color:var(--ink);
@@ -116,8 +121,23 @@ button{font-family:inherit; font-size:inherit; border:0; background:none; color:
 }
 .btn:active{transform:scale(.975)}
 .btn:disabled{opacity:.45; pointer-events:none}
-.btn-primary{background:linear-gradient(180deg,var(--blue-500),var(--blue-600)); color:#fff;
-  box-shadow:0 2px 4px rgba(20,80,200,.22), 0 12px 26px rgba(20,80,200,.30)}
+/* Hauptaktion als getöntes Glas statt als volle Fläche. Die naheliegende
+   Variante — helleres Blau, weiße Schrift — scheidet aus: auf hellblauem
+   Grund käme weiße Schrift auf rund 1,9:1 Kontrast und wäre kaum lesbar.
+   Umgekehrt trägt der helle Grund die kräftige blaue Schrift mit 5,8:1.
+   Der Knopf wird dadurch leiser UND besser lesbar. */
+.btn-primary{
+  background:linear-gradient(180deg, rgba(219,234,255,.95), rgba(190,217,255,.92));
+  backdrop-filter:blur(22px) saturate(180%);
+  -webkit-backdrop-filter:blur(22px) saturate(180%);
+  /* Kräftige Kante und blauer Schein statt Vollfläche: auf dem sehr
+     hellen Blattgrund muss der Knopf trotzdem als Knopf lesbar sein. */
+  border:1px solid rgba(126,174,247,.9);
+  color:var(--blue-700); font-weight:700;
+  box-shadow:0 1px 2px rgba(13,38,90,.06), 0 10px 24px rgba(29,110,245,.22)}
+/* Auf der hellen Glasfläche verschwindet der Knopf bei .45 fast ganz.
+   Deaktiviert soll er gedämpft aussehen, nicht kaputt. */
+.btn-primary:disabled{opacity:.62}
 .btn-dark{background:#101828; color:#fff; box-shadow:0 12px 28px rgba(16,24,40,.28)}
 .btn-glass{background:var(--glass-strong); backdrop-filter:blur(20px) saturate(180%);
   -webkit-backdrop-filter:blur(20px) saturate(180%);
