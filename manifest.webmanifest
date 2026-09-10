@@ -1,0 +1,17 @@
+{
+  "name": "CLAM",
+  "short_name": "CLAM",
+  "description": "Schubrisiko bei Autoimmunerkrankungen früh erkennen und gezielt abklären lassen.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#BBE2FC",
+  "theme_color": "#EDF3FF",
+  "lang": "de",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

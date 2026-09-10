@@ -1,0 +1,58 @@
+rules_version = '2';
+
+/* ══════════════════════════════════════════════════════════════════
+   CLAM — Firestore-Sicherheitsregeln
+
+   Es geht hier um Gesundheitsdaten nach Art. 9 DSGVO. Die Grundregel
+   ist deshalb streng und kennt keine Ausnahme: jede Nutzerin und jeder
+   Nutzer kommt ausschließlich an die eigenen Daten. Es gibt keine
+   Freigabe zwischen Konten, keinen Lesezugriff für Praxen und keine
+   öffentlichen Sammlungen.
+
+   Die Praxis bekommt ihren Bericht per Mail, nicht per Datenbankzugriff.
+   Das ist Absicht: ein Praxiszugang wäre ein Berechtigungsmodell, das
+   sich ohne echte Rollenverwaltung nicht sicher abbilden lässt.
+
+   Der Ingest-Endpunkt (/api/ingest) schreibt mit dem Admin-SDK und
+   umgeht diese Regeln — das ist der einzige Weg an den Daten vorbei und
+   deshalb über einen persönlichen Token abgesichert.
+
+   Einspielen:
+     firebase deploy --only firestore:rules
+   ══════════════════════════════════════════════════════════════════ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      /* Der Ingest-Token darf vom Client gesetzt werden — er wird dort
+         erzeugt. Er ist ein Zufallswert und kein Geheimnis, das der
+         Server vergibt. */
+
+      match /days/{dayKey} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /reports/{reportId} {
+        /* Berichte sind ein Protokoll dessen, was an die Praxis ging.
+           Sie dürfen angelegt und gelesen, aber nicht nachträglich
+           verändert werden — ein rückwirkend umgeschriebener Bericht
+           wäre wertlos. Löschen bleibt erlaubt, sonst ließe sich das
+           Konto nicht vollständig löschen (Art. 17 DSGVO). */
+        allow read, create, delete: if isOwner(uid);
+        allow update: if false;
+      }
+    }
+
+    /* Alles, was hier nicht ausdrücklich erlaubt ist, ist verboten. */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
