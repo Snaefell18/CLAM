@@ -41,13 +41,14 @@
   /* Gedeckte Stufenfarben, gespiegelt aus LEVELS in risk.js.
      --bad und --warn bleiben unverändert: die stehen für Fehler und
      Warnungen in der Oberfläche, nicht für eine Risikostufe. */
-  --lvl-low:#217A54;
-  --lvl-elevated:#9C6820;
-  --lvl-high:#A8433A;
-  --lvl-none:#7C879B;
-  --lvl-low-soft:#46A181;
-  --lvl-elevated-soft:#CE9A4E;
-  --lvl-high-soft:#C86F66;
+  --lvl-low:#0B7A4E;
+  --lvl-elevated:#9E7108;
+  --lvl-high:#B03A2E;
+  --lvl-none:#71809A;
+  /* Pastell für Flächen und Bögen — reine Grafik, kein Textkontrast. */
+  --lvl-low-soft:#7CCBAA;
+  --lvl-elevated-soft:#F0C95F;
+  --lvl-high-soft:#E58D84;
 
   --glass:rgba(255,255,255,.66);
   --glass-strong:rgba(255,255,255,.82);
@@ -284,10 +285,13 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .ring .glowring{fill:none; stroke-width:22; stroke-linecap:round; opacity:.16; filter:blur(9px);
   transition:stroke-dashoffset .9s cubic-bezier(.2,.8,.3,1), stroke .5s}
 .ring .mid{position:absolute; inset:0; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:2px; text-align:center; padding:0 16px}
+  align-items:center; justify-content:center; gap:2px; text-align:center;
+  /* Der Innenkreis ist deutlich schmaler als das Quadrat, in dem .mid
+     sitzt. Mit zu wenig Abstand läuft die Zeile in den Bogen hinein. */
+  padding:0 clamp(24px,7.5vw,34px)}
 .ring .lvl{font-size:clamp(26px,7.6vw,34px); font-weight:800; letter-spacing:-.035em; line-height:1}
-.ring .pct{font-size:14px; font-weight:700; color:var(--ink-3); font-variant-numeric:tabular-nums;
-  letter-spacing:-.01em; margin-top:6px}
+.ring .pct{font-size:15px; font-weight:750; color:var(--ink-3); font-variant-numeric:tabular-nums;
+  letter-spacing:.01em; margin-top:7px; white-space:nowrap}
 .ring .cap{font-size:11px; font-weight:750; letter-spacing:.10em; text-transform:uppercase;
   color:var(--ink-3); margin-bottom:4px}
 
@@ -319,7 +323,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   font-variant-numeric:tabular-nums}
 .sig .d.up{color:var(--lvl-high)}
 .sig .d.ok{color:var(--ink-3)}
-.sig.hot{border-color:rgba(206,154,78,.5); background:rgba(253,250,243,.82)}
+.sig.hot{border-color:rgba(240,201,95,.65); background:rgba(254,250,238,.85)}
 .sig.miss b{color:var(--ink-3); font-weight:600; font-size:15px}
 /* Die Zeile bleibt auch leer stehen, damit alle Kacheln gleich hoch
    sind — sonst springt die Rasterhöhe je nachdem, was erfasst ist. */
@@ -338,22 +342,32 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 #s-home{padding-bottom:calc(env(safe-area-inset-bottom) + 168px)}
 .actions .row{gap:10px}
 
-/* ── Handlungsaufforderung bei erhöhtem Risiko ── */
+/* ── Handlungsaufforderung bei erhöhtem Risiko ──
+   Getöntes Glas statt satter Fläche: dieselbe Sprache wie die
+   Hauptaktion, und eine Pastellfläche mit weißer Schrift wäre ohnehin
+   unlesbar. Die Farbe der Stufe trägt hier die Überschrift, nicht der
+   Hintergrund. */
 .cta{display:flex; align-items:center; gap:13px; text-align:left; width:100%;
-  padding:15px 17px; border-radius:var(--r-md); margin-top:20px;
-  color:#fff; transition:transform .15s; animation:in .45s cubic-bezier(.2,.8,.3,1)}
+  padding:16px 17px; border-radius:var(--r-md); margin-top:20px;
+  backdrop-filter:blur(22px) saturate(180%); -webkit-backdrop-filter:blur(22px) saturate(180%);
+  border:1px solid rgba(255,255,255,.85);
+  transition:transform .15s; animation:in .45s cubic-bezier(.2,.8,.3,1)}
 .cta:active{transform:scale(.98)}
-.cta.elevated{background:linear-gradient(180deg,#CFA05C,#A97425);
-  box-shadow:0 2px 4px rgba(120,80,20,.16), 0 12px 26px rgba(120,80,20,.20)}
-.cta.high{background:linear-gradient(180deg,#C9736A,#A8433A);
-  box-shadow:0 2px 4px rgba(130,40,32,.16), 0 12px 26px rgba(130,40,32,.20)}
+.cta.elevated{background:linear-gradient(180deg, rgba(253,240,206,.95), rgba(250,229,175,.92));
+  box-shadow:0 1px 2px rgba(120,90,20,.06), 0 10px 24px rgba(190,145,40,.20)}
+.cta.high{background:linear-gradient(180deg, rgba(253,231,228,.95), rgba(250,214,209,.92));
+  box-shadow:0 1px 2px rgba(130,50,40,.06), 0 10px 24px rgba(190,80,70,.18)}
 .cta .ic{width:38px; height:38px; border-radius:12px; flex:none; display:grid; place-items:center;
-  background:rgba(255,255,255,.18)}
+  background:rgba(255,255,255,.62)}
 .cta .ic svg{width:19px; height:19px}
+.cta.elevated .ic{color:var(--lvl-elevated)}
+.cta.high .ic{color:var(--lvl-high)}
 .cta .tx{flex:1; min-width:0}
 .cta .tx b{display:block; font-size:15.5px; font-weight:700; letter-spacing:-.015em}
-.cta .tx span{display:block; font-size:12.5px; margin-top:2px; color:rgba(255,255,255,.82); line-height:1.35}
-.cta>svg{width:17px; height:17px; opacity:.8; flex:none}
+.cta.elevated .tx b{color:var(--lvl-elevated)}
+.cta.high .tx b{color:var(--lvl-high)}
+.cta .tx span{display:block; font-size:12.5px; margin-top:2px; color:var(--ink-2); line-height:1.35}
+.cta>svg{width:17px; height:17px; opacity:.55; flex:none}
 
 /* ── Treiberliste ── */
 .drv{padding:6px}
@@ -468,8 +482,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .chart{position:relative; width:100%; height:172px; margin:6px 0 4px}
 .chart svg{width:100%; height:100%; overflow:visible}
 .chart .grid-l{stroke:rgba(140,170,220,.22); stroke-width:1}
-.chart .band-el{fill:rgba(206,154,78,.09)}
-.chart .band-hi{fill:rgba(200,111,102,.11)}
+.chart .band-el{fill:rgba(240,201,95,.16)}
+.chart .band-hi{fill:rgba(229,141,132,.16)}
 .chart .line{fill:none; stroke:var(--blue-600); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round}
 .chart .area{fill:url(#riskfill)}
 .chart .pt{stroke:#fff; stroke-width:2}

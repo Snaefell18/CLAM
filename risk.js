@@ -410,20 +410,25 @@ export function lastKeys(key, n){
 /* ─────────────────  9. DARSTELLUNG  ───────────────── */
 
 /* color = Schrift, ring = Bogen. Zwei Werte je Stufe, weil beide
-   Verschiedenes leisten müssen: die Stufenbezeichnung braucht Kontrast,
-   der Ring soll ruhig wirken.
+   Verschiedenes leisten müssen.
 
-   Die Töne sind gegenüber der Signalfarbpalette entsättigt und
-   abgedunkelt — das passt zur hellen Glasoberfläche und verbessert
-   nebenbei die Lesbarkeit deutlich. Die vorherigen Werte lagen auf dem
-   Farbfeld bei 2,24:1 (grün) und 1,83:1 (amber) und rissen damit sogar
-   die 3:1-Grenze für große Schrift. Die neuen liegen bei 4,1 bis 5,1:1. */
+   Der Ring ist reine Grafik und darf deshalb ein helles Pastell sein.
+   Die Stufenbezeichnung braucht Kontrast und muss dunkler bleiben.
+
+   Entscheidend gegen den Schlammeindruck ist die SÄTTIGUNG, nicht die
+   Helligkeit: Gelb, das dunkel genug für Text ist, wirkt bei niedriger
+   Sättigung olivbraun und bei hoher goldig. Die Töne liegen deshalb bei
+   83 bis 90 % Sättigung statt bei 50 bis 66 % wie zuvor.
+
+   Heller geht bei der Schrift nicht: Ab #B5822A fällt Gelb unter 3:1
+   und reißt damit die Grenze für große Schrift. Die Werte hier liegen
+   bei 3,7 bis 5,1:1. */
 export const LEVELS = {
-  building: { color:"#7C879B", ring:"#C7CFDD" },
-  nodata:   { color:"#7C879B", ring:"#C7CFDD" },
-  low:      { color:"#217A54", ring:"#46A181" },
-  elevated: { color:"#9C6820", ring:"#CE9A4E" },
-  high:     { color:"#A8433A", ring:"#C86F66" }
+  building: { color:"#71809A", ring:"#C7CFDD" },
+  nodata:   { color:"#71809A", ring:"#C7CFDD" },
+  low:      { color:"#0B7A4E", ring:"#7CCBAA" },
+  elevated: { color:"#9E7108", ring:"#F0C95F" },
+  high:     { color:"#B03A2E", ring:"#E58D84" }
 };
 
 /* Abweichung als lesbarer Text: "+6 bpm" statt "z = 2.1". Der z-Wert

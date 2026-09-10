@@ -684,7 +684,7 @@ function renderHome(){
        <span class="lvl" style="font-size:24px;color:${conf.color}">Keine Daten</span>`
     : `<span class="cap">Schubrisiko</span>
        <span class="lvl" style="color:${conf.color}">${txt.t}</span>
-       <span class="pct">${pct}% Wahrscheinlichkeit</span>`;
+       <span class="pct">${pct} %</span>`;
 
   let html = `
     <div class="ring-wrap">
