@@ -130,9 +130,11 @@ button{font-family:inherit; font-size:inherit; border:0; background:none; color:
   background:linear-gradient(180deg, rgba(219,234,255,.95), rgba(190,217,255,.92));
   backdrop-filter:blur(22px) saturate(180%);
   -webkit-backdrop-filter:blur(22px) saturate(180%);
-  /* Kräftige Kante und blauer Schein statt Vollfläche: auf dem sehr
-     hellen Blattgrund muss der Knopf trotzdem als Knopf lesbar sein. */
-  border:1px solid rgba(126,174,247,.9);
+  /* Weiche Glaskante wie bei den übrigen Elementen — eine kräftige blaue
+     Linie wirkt hier zu hart. Die Form trägt stattdessen die Füllung
+     selbst: der blaue Ton hebt sich deutlich genug vom Blattgrund ab,
+     der Schein darunter gibt die Höhe. */
+  border:1px solid rgba(255,255,255,.85);
   color:var(--blue-700); font-weight:700;
   box-shadow:0 1px 2px rgba(13,38,90,.06), 0 10px 24px rgba(29,110,245,.22)}
 /* Auf der hellen Glasfläche verschwindet der Knopf bei .45 fast ganz.
