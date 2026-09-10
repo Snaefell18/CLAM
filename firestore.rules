@@ -17,6 +17,9 @@ rules_version = '2';
    umgeht diese Regeln — das ist der einzige Weg an den Daten vorbei und
    deshalb über einen persönlichen Token abgesichert.
 
+   Firebase Storage wird nicht verwendet: es setzt den Blaze-Plan voraus.
+   Auch die Fotos liegen deshalb in Firestore.
+
    Einspielen:
      firebase deploy --only firestore:rules
    ══════════════════════════════════════════════════════════════════ */
@@ -36,6 +39,14 @@ service cloud.firestore {
          Server vergibt. */
 
       match /days/{dayKey} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /photos/{photoId} {
+        /* Die Fotos liegen als Base64 hier statt in Firebase Storage:
+           Storage verlangt den Blaze-Plan, Firestore genügt für diesen
+           Zweck. Ein Bild je Dokument, damit das Tagesdokument klein
+           bleibt und beim Start schnell lädt. */
         allow read, write: if isOwner(uid);
       }
 

@@ -63,15 +63,23 @@ Offen in der Firebase-Konsole:
 1. **Authentication** → Anmeldemethoden **E-Mail/Passwort** und **Google**
    aktivieren.
 2. **Firestore Database** anlegen, Modus *Production*.
-3. **Storage** aktivieren (für die Fotos).
-4. Regeln einspielen:
+3. Regeln einspielen — entweder in der Konsole unter *Firestore Database →
+   Regeln* den Inhalt von `firestore.rules` einfügen und veröffentlichen,
+   oder im geklonten Projektordner:
 
 ```bash
-firebase deploy --only firestore:rules,storage
+npm i -g firebase-tools
+firebase login
+firebase deploy --only firestore:rules
 ```
 
-`firestore.rules` und `storage.rules` sind bewusst streng: **jeder kommt nur an
-die eigenen Daten**, kein Praxiszugang über die Datenbank.
+`firestore.rules` ist bewusst streng: **jeder kommt nur an die eigenen Daten**,
+kein Praxiszugang über die Datenbank.
+
+**Firebase Storage wird nicht gebraucht.** Es setzt den Blaze-Plan voraus,
+deshalb liegen auch die Fotos in Firestore — ein Dokument je Bild, vorher auf
+ein festes Budget heruntergerechnet (siehe unten). Der kostenlose Spark-Plan
+reicht damit für die ganze App.
 
 ### 3. Claude-API-Key · **erforderlich**
 
@@ -163,7 +171,6 @@ CLAM/
 │  ├─ report.js        Bericht für die Praxis
 │  └─ ingest.js        Apple-Kurzbefehl → Firestore
 ├─ firestore.rules     Zugriffsregeln
-├─ storage.rules       Zugriffsregeln für Fotos
 ├─ tools-make-icons.mjs  erzeugt den PNG-Iconsatz aus der Vektormarke
 └─ icons/
    ├─ logo-mark.svg    Marke (Version 3), Quelle für alles Weitere
@@ -231,6 +238,27 @@ Die ausgegebene Prozentzahl ist auf Plausibilität kalibriert, nicht auf
 gemessene Ereignisraten. Sie wird bewusst auf 5er-Schritte gerundet: eine
 Nachkommastelle würde eine Genauigkeit vortäuschen, die diese Kalibrierung
 nicht hat.
+
+---
+
+## Wo die Fotos liegen
+
+In Firestore, nicht in Firebase Storage — Storage verlangt den Blaze-Plan.
+
+Ein Firestore-Dokument fasst 1 MiB, und Base64 bläht Bilddaten um ein Drittel
+auf. Die App rechnet jedes Foto deshalb vor dem Speichern auf ein Budget von
+rund 0,4 MiB herunter: erst sinkt die JPEG-Qualität, dann die Kantenlänge.
+Kompression kostet weniger Erkennbarkeit als Auflösung, und für die Beurteilung
+einer Schwellung zählt die Kantenschärfe mehr als die Politur. Ein Testbild mit
+2400 × 1800 Pixeln reinem Rauschen — der ungünstigste Fall für JPEG — landet so
+bei 325 KB; echte Fotos bleiben deutlich darunter.
+
+Bild und Metadaten liegen getrennt: `users/{uid}/photos/{id}` trägt die
+Bilddaten, der Tageseintrag nur Region, Befund und Datum. Das Tagesdokument
+wird bei jedem Start geladen — mit eingebetteten Bildern wäre das nach ein paar
+Wochen zäh.
+
+Der Spark-Plan gibt 1 GiB Firestore-Speicher, das sind einige tausend Aufnahmen.
 
 ---
 

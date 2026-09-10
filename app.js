@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════════
    CLAM — Closed-Loop Autoimmune Management
-   index.html + app.js  ·  Firebase Auth/Firestore/Storage  ·  Claude
+   index.html + app.js  ·  Firebase Auth/Firestore  ·  Claude
 
    Der Kreislauf, den diese App schließt:
 
@@ -52,10 +52,6 @@ import {
   query, orderBy, limit, addDoc
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  getStorage, ref as sref, uploadString, getDownloadURL
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
-
-import {
   assess, assessSeries, lastKeys, shiftKey, dateToKey,
   SIGNALS, SIGNAL_IDS, GATES, LEVELS, deltaText, probPct
 } from "./risk.js";
@@ -67,7 +63,6 @@ import {
 const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
 const db    = getFirestore(fb);
-const store = getStorage(fb);
 const gprov = new GoogleAuthProvider();
 
 /* ─────────────────  3. STATE & HELFER  ───────────────── */
@@ -244,6 +239,13 @@ onAuthStateChanged(auth, async user => {
                                    Fotos, Laborwerte, gespeicherte
                                    Risikobewertung
    users/{uid}/reports/{id}        erzeugte Praxisberichte
+   users/{uid}/photos/{id}         ein Foto als Base64
+
+   Die Bilder liegen bewusst NICHT in Firebase Storage: das verlangt den
+   Blaze-Plan. Firestore genügt hier — ein Dokument fasst 1 MiB, und die
+   App drückt jedes Bild vorher unter ein festes Budget (siehe
+   compress). Ein Bild je Dokument, damit das Tagesdokument klein und
+   schnell ladbar bleibt.
 
    Der Tag ist die Einheit, in der alles zusammenläuft — deshalb ein
    Dokument pro Tag statt getrennter Sammlungen je Datenart. */
@@ -951,7 +953,7 @@ function openPhoto(){
     ${prev ? `
       <p class="group-label" style="margin-top:22px">Letzte Aufnahme</p>
       <div class="hist-item">
-        <img class="res-thumb" src="${esc(prev.url)}" alt="" style="width:44px;height:44px">
+        <img class="res-thumb" id="ph-last" alt="" style="width:44px;height:44px;background:var(--blue-100)">
         <span class="tx"><b>${esc(JOINTS.find(j => j.id === prev.region)?.n || prev.region)}</b>
           <span>${esc(longDate(prev.key))}</span></span>
       </div>` : ""}
@@ -960,6 +962,13 @@ function openPhoto(){
 
   openSheet("Foto dokumentieren", body,
     `<button class="btn btn-primary" id="ph-go" disabled>Auswerten</button>`);
+
+  /* Vorschaubild der letzten Aufnahme nachladen. Bewusst ohne await —
+     das Sheet soll sofort bedienbar sein. */
+  if (prev) loadPhotoImage(prev.id).then(src => {
+    const el = $("#ph-last");
+    if (el && src) el.src = src;
+  });
 
   $("#ph-shot").onclick = () => $("#ph-file").click();
   $("#ph-file").onchange = async e => {
@@ -977,6 +986,9 @@ function openPhoto(){
   $("#ph-go").onclick = analyzePhoto;
 }
 
+/* Metadaten der letzten Aufnahme. Das Bild selbst liegt in einem
+   eigenen Dokument und wird erst geholt, wenn es angezeigt wird —
+   sonst zöge jeder Seitenaufbau alle Fotos mit. */
 function lastPhoto(){
   for (let i = S.days.length - 1; i >= 0; i--){
     const ph = S.days[i].photos;
@@ -985,19 +997,55 @@ function lastPhoto(){
   return null;
 }
 
-/* Bild verkleinern. Ein 12-MP-Foto ist für die Auswertung unnötig groß
-   und würde die Übertragung ausbremsen. */
-function compress(file, max = 1280, quality = 0.8){
-  return new Promise(res => {
+async function loadPhotoImage(id){
+  try {
+    const snap = await getDoc(doc(db, "users", S.uid, "photos", id));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    return `data:${d.mime || "image/jpeg"};base64,${d.data}`;
+  } catch { return null; }
+}
+
+/* Bild verkleinern, bis es sicher in ein Firestore-Dokument passt.
+
+   Ein Dokument fasst 1 MiB. Base64 bläht die Bytes um ein Drittel auf,
+   deshalb ist das Budget bewusst niedrig angesetzt — lieber ein etwas
+   weicheres Bild als ein Speichern, das beim Arzttermin scheitert.
+
+   Erst wird die Qualität gesenkt, dann die Kantenlänge: Kompression
+   kostet weniger Erkennbarkeit als Auflösung, und für die Beurteilung
+   einer Schwellung zählt die Kantenschärfe mehr als die Politur. */
+const PHOTO_BUDGET = 420 * 1024;   // Base64-Zeichen, ~0,4 MiB
+
+function compress(file){
+  const steps = [
+    { max:1280, q:0.80 },
+    { max:1280, q:0.65 },
+    { max:1024, q:0.62 },
+    { max: 900, q:0.55 },
+    { max: 720, q:0.50 }
+  ];
+  return new Promise((res, rej) => {
     const img = new Image();
+    img.onerror = () => rej(new Error("Bild konnte nicht gelesen werden."));
     img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement("canvas");
-      c.width  = Math.round(img.width  * scale);
-      c.height = Math.round(img.height * scale);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      const url = c.toDataURL("image/jpeg", quality);
-      res({ data:url.split(",")[1], mime:"image/jpeg", url });
+      URL.revokeObjectURL(img.src);
+      let out = null;
+      for (const st of steps){
+        const scale = Math.min(1, st.max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width  = Math.round(img.width  * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext("2d");
+        // Weißer Grund: PNG mit Transparenz würde sonst schwarz werden
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const url = c.toDataURL("image/jpeg", st.q);
+        out = { data:url.split(",")[1], mime:"image/jpeg", url };
+        if (out.data.length <= PHOTO_BUDGET) break;
+      }
+      res(out);
     };
     img.src = URL.createObjectURL(file);
   });
@@ -1062,16 +1110,17 @@ function showPhotoResult(d, region, regionName){
   $("#ph-save").onclick = async () => {
     $("#ph-save").disabled = true;
     try {
-      /* Bild in den Storage, nur die Referenz in Firestore — ein
-         Tagesdokument darf 1 MB nicht überschreiten. */
+      /* Bild in ein eigenes Dokument, nur die Metadaten an den Tag.
+         Getrennt, weil das Tagesdokument bei jedem Start geladen wird —
+         mit eingebetteten Bildern wäre das nach ein paar Wochen zäh. */
       const id = crypto.randomUUID();
-      const path = `users/${S.uid}/photos/${S.dayKey}-${id}.jpg`;
-      const r = sref(store, path);
-      await uploadString(r, photoData, "base64", { contentType: photoMime });
-      const url = await getDownloadURL(r);
+      await setDoc(doc(db, "users", S.uid, "photos", id), {
+        data: photoData, mime: photoMime,
+        dayKey: S.dayKey, region, at: new Date().toISOString()
+      });
 
       const photos = [...(S.day.photos || []), {
-        id, region, path, url, at: clock(),
+        id, region, at: clock(),
         findings: d.findings || [], change: d.change || null,
         note: d.note || "", confidence: d.confidence || null
       }];
@@ -1080,7 +1129,11 @@ function showPhotoResult(d, region, regionName){
       toast("Foto gespeichert.");
     } catch(e){
       $("#ph-save").disabled = false;
-      toast("Speichern fehlgeschlagen. Prüfe deine Verbindung.");
+      /* Der häufigste Fall ist ein zu großes Dokument. Das sagt die
+         Meldung, statt pauschal auf die Verbindung zu zeigen. */
+      toast(String(e?.message || "").includes("longer than")
+        ? "Das Bild ist zu groß zum Speichern. Bitte erneut aufnehmen."
+        : "Speichern fehlgeschlagen. Prüfe deine Verbindung.");
     }
   };
 }
@@ -2018,9 +2071,15 @@ async function exportData(){
     const reports = [];
     rsnap.forEach(d => reports.push({ id:d.id, ...d.data() }));
 
+    /* Die Fotos gehören dazu — Datenübertragbarkeit meint alle Daten,
+       nicht nur die handlichen. Die Datei wird dadurch groß. */
+    const psnap = await getDocs(collection(db, "users", S.uid, "photos"));
+    const photos = [];
+    psnap.forEach(d => photos.push({ id:d.id, ...d.data() }));
+
     const blob = new Blob([JSON.stringify({
       exportedAt: new Date().toISOString(),
-      profile: S.profile, days, reports
+      profile: S.profile, days, reports, photos
     }, null, 2)], { type:"application/json" });
 
     const a = document.createElement("a");
@@ -2054,7 +2113,7 @@ function openDelete(){
          es dazwischen ab, bleibt kein Konto ohne zugehörige Daten übrig,
          sondern nur Daten ohne Konto — und die kann der Nutzer nach
          erneutem Login wieder löschen. */
-      for (const sub of ["days", "reports"]){
+      for (const sub of ["days", "reports", "photos"]){
         const snap = await getDocs(collection(db, "users", S.uid, sub));
         await Promise.all(snap.docs.map(d =>
           deleteDoc(doc(db, "users", S.uid, sub, d.id))));
