@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 100" width="430" height="100" role="img" aria-label="CLAM">
+  <title>CLAM</title>
+  <g fill="none" stroke="#26374A" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M77.9 83.1A42 42 0 1 1 77.9 16.9"/>
+    <path d="M115 8V92h53"/>
+    <path d="M200 92 244 8l44 84"/>
+    <path d="M320 92V8l50 52 50-52v84"/>
+  </g>
+</svg>

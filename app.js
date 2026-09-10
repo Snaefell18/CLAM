@@ -87,21 +87,15 @@ const S = {
    Puffer für die Verlaufskurve. */
 const WINDOW_DAYS = 60;
 
-/* Der Splash bleibt mindestens so lange stehen, dass die Wortmarke ihre
-   Einblendung zu Ende spielen kann — sonst blitzt er nur kurz auf. */
-const BOOT_MIN_MS = 1850;
+/* Der Splash bleibt mindestens so lange stehen, dass die Marke sich
+   fertig zeichnen kann — sonst blitzt er nur kurz auf. Die längste
+   Animation ist der Schriftzug: Start bei 1,02 s, Dauer 0,72 s. */
+const BOOT_MIN_MS = 2050;
 const bootStart = Date.now();
 
 (document.fonts ? document.fonts.ready : Promise.resolve())
   .then(() => document.getElementById("boot").classList.add("ready"));
 setTimeout(() => document.getElementById("boot").classList.add("ready"), 700);
-
-/* Solange kein Logo hinterlegt ist, läuft der Splash ohne Grafik — der
-   Verlauf geht dann über die volle Höhe und die Wortmarke sitzt mittig.
-   So sieht der Start auch vor dem Logo-Upload fertig aus. */
-document.getElementById("boot-art").addEventListener("error", () => {
-  document.getElementById("boot").classList.add("nologo");
-});
 
 function hideBoot(){
   setTimeout(() => document.getElementById("boot").classList.add("off"),

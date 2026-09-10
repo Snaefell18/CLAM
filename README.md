@@ -22,33 +22,35 @@ Abweichungen vom individuellen Normal und macht daraus eine Handlung.
 
 ## Was ich von dir brauche
 
-Sechs Dinge. Ohne die ersten vier läuft die App nicht, die letzten beiden sind
-Komfort.
+Punkt 1 ist erledigt — mit einer Einschränkung, die du kennen solltest.
+Ohne die Punkte 2 bis 4 läuft die App nicht, die letzten beiden sind Komfort.
 
-### 1. Logo · **erforderlich**
+### 1. Logo · **erledigt, mit einer Einschränkung**
 
-Du wolltest ein eigenes Logo hochladen — das Walross ist raus. Leg diese
-Dateien nach `icons/`:
+Die hochgeladenen Dateien sind als Bildinhalt in der Unterhaltung angekommen,
+nicht als Dateien im Arbeitsverzeichnis — ich konnte die Original-PNGs deshalb
+nicht ins Repository legen.
 
-| Datei | Größe | Wofür |
-|---|---|---|
-| `boot-logo.png` | ca. 1200 px breit, transparent | Splashscreen, sitzt unten auf dem Farbverlauf |
-| `apple-touch-icon.png` | 180 × 180 | Home-Bildschirm iOS, Login-Screen |
-| `icon-192.png` | 192 × 192 | PWA |
-| `icon-512.png` | 512 × 512 | PWA |
-| `icon-maskable-512.png` | 512 × 512, Motiv mit ~10 % Rand | Android adaptive |
-| `favicon-32.png` | 32 × 32 | Browser-Tab |
+Was jetzt drin ist: eine **Nachzeichnung als Vektor**. `icons/logo-mark.svg`
+bildet Version 3 nach (die Verlaufsmarke), `icons/wordmark.svg` den
+CLAM-Schriftzug. Beide sind der Vorlage sehr nahe, aber nicht Pixel für Pixel
+identisch. Daraus erzeugt sind alle PNG-Icons für PWA, iOS und Browser-Tab.
 
-**Zum Seitenverhältnis des Splash-Logos:** In `index.html` steht bei `.boot`
-die Zeile `--logo-ratio:0.6825`. Das ist Höhe ÷ Breite deiner Grafik. Bei einem
-Logo von 1200 × 600 px trägst du `0.5` ein. Nur diese eine Zahl — der Rest der
-Splash-Geometrie hängt daran.
+Marke und Schriftzug stehen zusätzlich direkt in `index.html` — im Splash und
+auf dem Login als eingebettetes SVG. Das ist Absicht: ein Splash darf nicht auf
+einen Netzwerk-Abruf warten, sonst blitzt er leer auf. Nebenbei erlaubt der
+Vektor die Zeichenanimation, bei der sich die Schleife einmal selbst zieht —
+die Bewegung sagt genau das, was die App tut.
 
-Solange noch kein `boot-logo.png` da ist, läuft der Splash trotzdem sauber: die
-App merkt das und zeigt nur den Farbverlauf mit der animierten Wortmarke.
+**Willst du die Originale einspielen**, geht das so:
+- PNG-Icons in `icons/` einfach überschreiben, Namen beibehalten.
+- Für Splash und Login: in `index.html` nach `clamGrad` suchen, dort stehen
+  Marke und Schriftzug als Pfade.
+- Hast du nur PNG statt SVG, sag Bescheid — dann baue ich den Splash auf
+  `<img>` um. Die Zeichenanimation entfällt dann, die geht nur mit Vektoren.
 
-Falls die Wortmarke anders heißen soll als `CLAM` / `health` — sag Bescheid,
-das sind zwei Zeilen in `index.html`.
+Einzelheiten und die Farbwerte stehen in `icons/README.md`.
+Icons neu erzeugen: `npm i playwright && node tools-make-icons.mjs`.
 
 ### 2. Firebase-Projekt · **erforderlich**
 
@@ -178,7 +180,11 @@ CLAM/
 │  └─ ingest.js        Apple-Kurzbefehl → Firestore
 ├─ firestore.rules     Zugriffsregeln
 ├─ storage.rules       Zugriffsregeln für Fotos
-└─ icons/              ← hier kommt dein Logo hin
+├─ tools-make-icons.mjs  erzeugt den PNG-Iconsatz aus der Vektormarke
+└─ icons/
+   ├─ logo-mark.svg    Marke (Version 3), Quelle für alles Weitere
+   ├─ wordmark.svg     Schriftzug CLAM
+   └─ *.png            App-Icons für PWA, iOS und Browser-Tab
 ```
 
 Kein Build-Schritt, keine Framework-Abhängigkeit — ES-Module direkt im Browser,

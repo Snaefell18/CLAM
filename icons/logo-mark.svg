@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 136" width="224" height="136" role="img" aria-label="CLAM">
+  <title>CLAM</title>
+  <defs>
+    <linearGradient id="clamGrad" gradientUnits="userSpaceOnUse" x1="6" y1="122" x2="218" y2="30">
+      <stop offset="0" stop-color="#0A6EEA"/>
+      <stop offset=".52" stop-color="#1BB6C0"/>
+      <stop offset="1" stop-color="#63DD82"/>
+    </linearGradient>
+  </defs>
+  <path fill="none" stroke="url(#clamGrad)" stroke-width="28" stroke-linecap="round"
+        d="M90.4 107A46 46 0 1 1 90.4 29C116 43 120 94 150 101C176 106 191 97 204 74"/>
+  <circle cx="168" cy="48" r="21" fill="url(#clamGrad)"/>
+</svg>

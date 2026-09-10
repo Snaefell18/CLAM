@@ -1,28 +1,67 @@
-# Icons
+# Marke und Icons
 
-Hier kommt das Logo hin. Alle Dateien sind PNG.
+## Herkunft — bitte lesen
 
-| Datei | Größe | Wofür |
+Die hochgeladenen Logo-Dateien sind als **Bildinhalt** in der Unterhaltung
+angekommen, nicht als Dateien im Arbeitsverzeichnis. Ich konnte die
+Original-PNGs deshalb nicht ins Repository legen.
+
+Was stattdessen hier liegt, ist eine **Nachzeichnung als Vektor**:
+`logo-mark.svg` und `wordmark.svg` bilden Version 3 (die Verlaufsmarke) und
+den CLAM-Schriftzug nach. Sie sind der Vorlage sehr nahe, aber nicht
+Pixel für Pixel identisch.
+
+**Wenn du die Originale einspielen willst**, siehe unten „Originale ersetzen".
+
+## Was hier liegt
+
+| Datei | Format | Verwendung |
 |---|---|---|
-| `boot-logo.png` | ca. 1200 px breit, transparenter Hintergrund | Splashscreen, sitzt unten auf dem Farbverlauf |
-| `apple-touch-icon.png` | 180 × 180 | Home-Bildschirm iOS, Login-Screen |
-| `icon-192.png` | 192 × 192 | PWA |
+| `logo-mark.svg` | Vektor, 224 × 136 | Quelle der Marke, Basis für alle PNGs |
+| `wordmark.svg` | Vektor, 430 × 100 | Schriftzug CLAM |
 | `icon-512.png` | 512 × 512 | PWA |
-| `icon-maskable-512.png` | 512 × 512, Motiv mit ~10 % Rand | Android adaptive |
+| `icon-192.png` | 192 × 192 | PWA |
+| `icon-maskable-512.png` | 512 × 512, randlos | Android adaptive |
+| `apple-touch-icon.png` | 180 × 180, randlos | Home-Bildschirm iOS |
 | `favicon-32.png` | 32 × 32 | Browser-Tab |
 
-## Seitenverhältnis des Splash-Logos
+Marke und Schriftzug stehen **zusätzlich direkt in `index.html`** — im Splash
+und auf dem Login-Screen als eingebettetes SVG. Das ist Absicht: ein Splash
+darf nicht auf einen Netzwerk-Abruf warten, sonst blitzt er leer auf. Die
+SVG-Dateien hier sind die gepflegte Quelle und die Vorlage für die PNGs.
 
-In `index.html` steht bei `.boot` die Zeile:
+## Farben
 
-```css
---logo-ratio:0.6825;
+| Rolle | Wert |
+|---|---|
+| Verlauf links | `#0A6EEA` |
+| Verlauf Mitte | `#1BB6C0` |
+| Verlauf rechts | `#63DD82` |
+| Schriftzug | `#26374A` |
+
+Der Verlauf läuft leicht diagonal von unten links nach oben rechts.
+
+## PNGs neu erzeugen
+
+```bash
+npm i playwright
+node tools-make-icons.mjs
 ```
 
-Das ist **Höhe ÷ Breite** der Datei `boot-logo.png`. Bei einem Logo von
-1200 × 600 px trägst du `0.5` ein. Nur diese eine Zahl — die restliche
-Splash-Geometrie hängt daran.
+Das Skript rendert die Marke im Browser und schneidet die Iconflächen zu.
+App-Icons bekommen die Verlaufsfläche mit weißer Marke — auf dem bunten
+Hintergrund eines Startbildschirms setzt sich das durch. Die maskable-Variante
+ist randlos und rückt die Marke auf 60 % ein, damit Android beim Zuschnitt auf
+einen Kreis nichts abschneidet.
 
-Solange `boot-logo.png` fehlt, merkt die App das und zeigt den Splash ohne
-Grafik: nur den Farbverlauf mit der animierten Wortmarke. Es sieht also auch
-vor dem Upload fertig aus.
+## Originale ersetzen
+
+Wenn du die echten Dateien einspielen willst:
+
+1. **PNG-Icons** einfach überschreiben — die Namen oben beibehalten, dann
+   greift alles automatisch.
+2. **Marke im Splash und Login**: in `index.html` nach `clamGrad` suchen. Dort
+   stehen der `<path>` der Marke und die vier `<path>` des Schriftzugs. Hast du
+   die Marke als SVG, ersetzt du Pfad und Verlauf direkt. Hast du nur PNG,
+   sag Bescheid — dann baue ich den Splash auf `<img>` um; die
+   Zeichenanimation entfällt dann allerdings, die funktioniert nur mit Vektoren.
