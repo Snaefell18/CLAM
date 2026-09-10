@@ -752,7 +752,7 @@ function renderHome(){
   /* Beschriftung der Hauptaktion: erst nach dem Tages-Check ist der Tag
      wirklich erfasst. */
   const done = CHECKS.some(c => Number.isFinite(S.day?.[c.id]));
-  $("#a-checkin-t").textContent = done ? "Tages-Check ändern" : "Tages-Check";
+  $("#a-checkin-t").textContent = done ? "Tages-Check anpassen" : "Tages-Check";
 }
 
 /* Ein Satz, der die Zahl in Sprache übersetzt. */
