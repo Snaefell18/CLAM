@@ -715,14 +715,13 @@ function renderHome(){
      Messwert eine Handlung machen. */
   html += ctaHTML(r);
 
-  /* Signalkacheln. Nur, was das gewählte Wearable liefern kann plus die
-     Patienteneingaben — sonst stünden dauerhaft leere Kacheln da. */
+  /* Signalkarten. Nur, was das gewählte Wearable liefern kann plus die
+     Patienteneingaben — sonst stünden dauerhaft leere Karten da. */
   const tiles = sigTiles(r);
-  html += `<p class="group-label" style="margin-top:24px">Deine Kennzahlen</p>
-    <div class="glass sig-list">${tiles.html}</div>`;
+  html += `<div class="sig-list">${tiles.html}</div>`;
   if (tiles.missing) html += `<p class="sig-hint">${
     tiles.missing === 1 ? "Eine Kennzahl fehlt noch" : `${tiles.missing} Kennzahlen fehlen noch`
-  } — tippe die Zeile an, um sie einzutragen.</p>`;
+  } — tippe die Karte an, um sie einzutragen.</p>`;
 
   html += `
     <div class="disclaimer">
@@ -843,13 +842,16 @@ function sigTiles(r){
     const s = r?.signals?.[id];
     const icon = SIG_ICON[id] || ICON.info;
 
+    /* Fehlt ein Wert, steht dort nur ein Strich. Kein "eintragen" auf
+       jeder Karte — neunmal dieselbe Aufforderung ist Lärm; der Hinweis
+       unter der Liste sagt es einmal. */
     if (!Number.isFinite(v)){
       missing++;
       return `
         <div class="sig-item miss" data-id="${id}">
           <span class="ic">${icon}</span>
           <span class="tx"><b>${esc(S_.label)}</b></span>
-          <span class="val ok">eintragen</span>
+          <span class="val none">—</span>
         </div>`;
     }
 

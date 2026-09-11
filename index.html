@@ -309,19 +309,20 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .conf small{font-size:11.5px; font-weight:700; color:var(--ink-3); white-space:nowrap;
   letter-spacing:.02em}
 
-/* ── Kennzahlen: eine Liste statt eines Kachelrasters ──
-   Ein 3-Spalten-Gitter wird ungleich hoch, sobald ein Name in einer
-   Zelle umbricht ("Morgensteifigkeit") und der daneben nicht ("HRV") —
-   CSS Grid streckt die ganze Reihe auf die höchste Zelle, und unter den
-   kurzen Namen bleibt Luft stehen. Als Liste trägt jede Zeile nur ihre
-   eigene Höhe: Icon links, Name und Abweichung in der Mitte, Wert
-   rechts — Flexbox richtet das unabhängig von der Textlänge sauber aus.
-   Dieselbe Zeilensprache wie bei der Aufschlüsselung (.drv-item). */
-.sig-list{padding:6px; margin-top:2px}
-.sig-item{display:flex; align-items:center; gap:12px; padding:12px 12px; border-radius:14px;
-  text-align:left; transition:background .15s}
-.sig-item+.sig-item{box-shadow:inset 0 1px 0 rgba(140,170,220,.20)}
-.sig-item:active{background:rgba(255,255,255,.55)}
+/* ── Kennzahlen: einzelne Karten, untereinander ──
+   Jede Kennzahl bleibt eine eigene Glaskarte mit kleinem Abstand zur
+   nächsten. Untereinander statt im 3-Spalten-Raster, weil das Raster
+   ungleich hoch wird, sobald ein Name umbricht ("Morgensteifigkeit")
+   und der daneben nicht ("HRV") — Grid streckt dann die ganze Reihe.
+   Über die volle Breite hat jede Karte Platz für Icon, Name samt
+   Abweichung und den Wert rechts, ohne Umbruch. */
+.sig-list{display:flex; flex-direction:column; gap:9px; margin-top:22px}
+.sig-item{display:flex; align-items:center; gap:13px; padding:14px 16px;
+  border-radius:var(--r-md); text-align:left; background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--glass-line); box-shadow:var(--shadow-s);
+  transition:transform .14s, border-color .18s, background .18s}
+.sig-item:active{transform:scale(.985)}
 .sig-item .ic{width:36px; height:36px; border-radius:11px; flex:none; display:grid; place-items:center;
   background:var(--blue-100)}
 .sig-item .ic svg{width:17px; height:17px}
@@ -334,8 +335,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   font-variant-numeric:tabular-nums; color:var(--ink)}
 .sig-item .val em{font-style:normal; font-size:12px; font-weight:600; color:var(--ink-3); margin-left:1px}
 .sig-item .val.up{color:var(--lvl-high)}
-.sig-item .val.ok{font-size:14px; font-weight:650; color:var(--blue-600)}
+.sig-item .val.none{color:var(--ink-3); opacity:.5}
+.sig-item.hot{border-color:color-mix(in srgb, var(--lvl-elevated-soft) 60%, transparent);
+  background:color-mix(in srgb, var(--lvl-elevated-soft) 12%, var(--glass))}
 .sig-item.hot .ic{background:color-mix(in srgb, var(--lvl-elevated-soft) 45%, transparent)}
+.sig-item.miss{background:rgba(255,255,255,.46)}
 .sig-item.miss .ic{opacity:.55}
 .sig-hint{font-size:12.5px; line-height:1.4; color:var(--ink-3); font-weight:600;
   text-align:center; margin:12px 10px 0}
