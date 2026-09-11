@@ -558,7 +558,6 @@ function showAdvice(d){
       <div class="glass drv">
         ${d.diagnostics.map(x => `
           <div class="drv-item">
-            <span class="ic">${ICON.lab}</span>
             <span class="tx"><b>${esc(x.test)}</b><span>${esc(x.why)}</span></span>
           </div>`).join("")}
       </div>` : ""}

@@ -184,12 +184,6 @@ export const ICON = {
   lab:   `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="#1D6EF5" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v6.5L4.2 18A2 2 0 0 0 6 21h12a2 2 0 0 0 1.8-3L15 9.5V3"/><path d="M8 3h8M7.5 14h9"/></svg>`
 };
 
-/* Signal-Symbol je Kennzahl — für Kacheln und Treiberliste. */
-export const SIG_ICON = {
-  rhr:ICON.heart, hrv:ICON.wave, steps:ICON.steps, sleep:ICON.moon, temp:ICON.temp,
-  pain:ICON.bolt, stiff:ICON.clock, fatigue:ICON.moon, global:ICON.face
-};
-
 /* ─────────────────  RECHTSTEXTE  ─────────────────
    Platzhalter. Vor Veröffentlichung durch geprüfte Texte ersetzen —
    die App verarbeitet Gesundheitsdaten (Art. 9 DSGVO), da genügt kein

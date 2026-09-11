@@ -57,7 +57,7 @@ import {
 } from "./risk.js";
 import {
   CONDITIONS, JOINTS, DRUGS, WEARABLES, LABS, CHECKS, STIFF_STEPS,
-  VITALS, ICON, SIG_ICON, LEGAL
+  VITALS, ICON, LEGAL
 } from "./data.js";
 import { loadCatalog } from "./catalog.js";
 import { initAdmin, checkAdmin, openAdmin } from "./admin.js";
@@ -814,19 +814,22 @@ function ctaHTML(r){
     </button>`;
 }
 
-/* Zeilen statt Kacheln für die einzelnen Kennzahlen.
+/* Eine Karte je Kennzahl, rein typografisch: links der Name, rechts der
+   Messwert und darunter die Abweichung zur Baseline.
 
-   Bewusst kein "eintragen" unter jeder leeren Zeile: neunmal dieselbe
+   Bewusst ohne Symbole. Ein Piktogramm neben jedem Namen erklärt nichts,
+   was der Name nicht schon sagt, und neun bunte Kacheln nebeneinander
+   nehmen den Werten die Ruhe. Ohne sie steht links eine saubere
+   Namensspalte und rechts eine Zahlenspalte — die Lesart eines Befunds.
+
+   Bewusst kein "eintragen" unter jeder leeren Karte: neunmal dieselbe
    Aufforderung liest sich wie ein Mängelprotokoll. Ein einzelner Hinweis
-   unter der Liste sagt, wie viele fehlen und was zu tun ist.
+   unter den Karten sagt, wie viele fehlen und was zu tun ist.
 
-   Und bewusst eine Liste statt eines 3-Spalten-Rasters: ein Gitter wird
-   ungleich hoch, sobald ein Name umbricht ("Morgensteifigkeit") und der
-   daneben nicht ("HRV") — CSS Grid streckt die ganze Reihe auf die
-   höchste Zelle, darunter bleibt bei den kurzen Namen Luft. Als Liste
-   trägt jede Zeile nur ihre eigene Höhe; Flexbox richtet Label und Wert
-   unabhängig von der Textlänge sauber aus. Dieselbe Zeilensprache wie
-   bei der Aufschlüsselung und den Laborwerten (.drv-item). */
+   Und bewusst untereinander statt in einem 3-Spalten-Raster: ein Gitter
+   wird ungleich hoch, sobald ein Name umbricht ("Morgensteifigkeit") und
+   der daneben nicht ("HRV") — CSS Grid streckt die ganze Reihe auf die
+   höchste Zelle, darunter bleibt bei den kurzen Namen Luft. */
 function sigTiles(r){
   const wear = WEARABLES.find(w => w.id === S.profile?.wearable);
   const cond = CONDITIONS.find(c => c.id === S.profile?.condition);
@@ -840,18 +843,14 @@ function sigTiles(r){
     const S_ = SIGNALS[id];
     const v = S.day?.[id];
     const s = r?.signals?.[id];
-    const icon = SIG_ICON[id] || ICON.info;
 
-    /* Fehlt ein Wert, steht dort nur ein Strich. Kein "eintragen" auf
-       jeder Karte — neunmal dieselbe Aufforderung ist Lärm; der Hinweis
-       unter der Liste sagt es einmal. */
+    /* Fehlt ein Wert, steht dort nur ein Strich. */
     if (!Number.isFinite(v)){
       missing++;
       return `
         <div class="sig-item miss" data-id="${id}">
-          <span class="ic">${icon}</span>
-          <span class="tx"><b>${esc(S_.label)}</b></span>
-          <span class="val none">—</span>
+          <span class="nm">${esc(S_.label)}</span>
+          <span class="rd"><b class="val none">—</b></span>
         </div>`;
     }
 
@@ -859,15 +858,18 @@ function sigTiles(r){
                 : id === "temp"  ? v.toFixed(2).replace(".", ",")
                 : id === "sleep" ? dec1(v)
                 : Math.round(v);
+    const unit = S_.unit && !S_.unit.startsWith("/") && id !== "steps"
+      ? ` <em>${esc(S_.unit)}</em>` : "";
     const hot = s?.active;
     /* Ohne Baseline gibt es noch keine Abweichung. Dann steht nur der
        Wert da, kein Strich — der sähe aus wie eine Messung von null. */
     return `
       <div class="sig-item${hot ? " hot" : ""}" data-id="${id}">
-        <span class="ic">${icon}</span>
-        <span class="tx"><b>${esc(S_.label)}</b>
-          ${s ? `<span class="${hot ? "up" : "ok"}">${deltaText(id, s)}</span>` : ""}</span>
-        <span class="val${hot ? " up" : ""}">${shown}${S_.unit && !S_.unit.startsWith("/") && id !== "steps" ? ` <em>${esc(S_.unit)}</em>` : ""}</span>
+        <span class="nm">${esc(S_.label)}</span>
+        <span class="rd">
+          <b class="val">${shown}${unit}</b>
+          ${s ? `<span class="dl${hot ? " up" : ""}">${deltaText(id, s)}</span>` : ""}
+        </span>
       </div>`;
   }).join("");
 
@@ -1306,7 +1308,6 @@ function openRiskDetail(){
       <div class="glass drv">
         ${drivers.map(d => `
           <div class="drv-item">
-            <span class="ic">${SIG_ICON[d.id] || ICON.info}</span>
             <span class="tx">
               <b>${esc(SIGNALS[d.id].label)}</b>
               <span>Baseline ${fmtVal(d.id, d.baseline)} · aktuell ${fmtVal(d.id, d.value)}</span>
@@ -1323,7 +1324,6 @@ function openRiskDetail(){
       <div class="glass drv">
         ${quiet.map(d => `
           <div class="drv-item">
-            <span class="ic" style="background:rgba(18,183,106,.12)">${SIG_ICON[d.id] || ICON.info}</span>
             <span class="tx"><b>${esc(SIGNALS[d.id].label)}</b>
               <span>Baseline ${fmtVal(d.id, d.baseline)} · aktuell ${fmtVal(d.id, d.value)}</span></span>
             <span class="val" style="color:var(--good)">${deltaText(d.id, d)}</span>
@@ -1544,7 +1544,6 @@ async function openReport(){
       <div class="glass drv">
         ${data.suggested.map(s => `
           <div class="drv-item">
-            <span class="ic">${ICON.lab}</span>
             <span class="tx"><b>${esc(s.test)}</b><span>${esc(s.why)}</span></span>
           </div>`).join("")}
       </div>

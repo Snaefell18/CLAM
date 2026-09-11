@@ -310,37 +310,40 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   letter-spacing:.02em}
 
 /* ── Kennzahlen: einzelne Karten, untereinander ──
-   Jede Kennzahl bleibt eine eigene Glaskarte mit kleinem Abstand zur
+   Jede Kennzahl ist eine eigene Glaskarte mit kleinem Abstand zur
    nächsten. Untereinander statt im 3-Spalten-Raster, weil das Raster
    ungleich hoch wird, sobald ein Name umbricht ("Morgensteifigkeit")
    und der daneben nicht ("HRV") — Grid streckt dann die ganze Reihe.
-   Über die volle Breite hat jede Karte Platz für Icon, Name samt
-   Abweichung und den Wert rechts, ohne Umbruch. */
+
+   Ohne Symbole: links eine Namensspalte, rechts eine Zahlenspalte mit
+   dem Messwert und darunter der Abweichung. Weil die Abweichung nicht
+   immer da ist (solange die Baseline fehlt), hält min-height alle
+   Karten auf derselben Höhe — sonst stünden in einer Liste hohe und
+   niedrige Karten nebeneinander. */
 .sig-list{display:flex; flex-direction:column; gap:9px; margin-top:22px}
-.sig-item{display:flex; align-items:center; gap:13px; padding:14px 16px;
-  border-radius:var(--r-md); text-align:left; background:var(--glass);
+.sig-item{display:flex; align-items:center; justify-content:space-between; gap:16px;
+  min-height:66px; padding:12px 20px; border-radius:var(--r-md); text-align:left;
+  background:var(--glass);
   backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
   border:1px solid var(--glass-line); box-shadow:var(--shadow-s);
   transition:transform .14s, border-color .18s, background .18s}
 .sig-item:active{transform:scale(.985)}
-.sig-item .ic{width:36px; height:36px; border-radius:11px; flex:none; display:grid; place-items:center;
-  background:var(--blue-100)}
-.sig-item .ic svg{width:17px; height:17px}
-.sig-item .tx{flex:1; min-width:0}
-.sig-item .tx b{display:block; font-size:15px; font-weight:680; letter-spacing:-.01em}
-.sig-item .tx span{display:block; font-size:12.5px; font-weight:700; margin-top:2px}
-.sig-item .tx span.up{color:var(--lvl-high)}
-.sig-item .tx span.ok{color:var(--ink-3); font-weight:600}
-.sig-item .val{flex:none; font-size:17px; font-weight:750; letter-spacing:-.02em;
+.sig-item .nm{min-width:0; font-size:15.5px; font-weight:620; letter-spacing:-.012em;
+  color:var(--ink-2)}
+.sig-item .rd{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:3px}
+.sig-item .val{font-size:19px; font-weight:720; letter-spacing:-.025em; line-height:1;
   font-variant-numeric:tabular-nums; color:var(--ink)}
-.sig-item .val em{font-style:normal; font-size:12px; font-weight:600; color:var(--ink-3); margin-left:1px}
-.sig-item .val.up{color:var(--lvl-high)}
-.sig-item .val.none{color:var(--ink-3); opacity:.5}
-.sig-item.hot{border-color:color-mix(in srgb, var(--lvl-elevated-soft) 60%, transparent);
-  background:color-mix(in srgb, var(--lvl-elevated-soft) 12%, var(--glass))}
-.sig-item.hot .ic{background:color-mix(in srgb, var(--lvl-elevated-soft) 45%, transparent)}
+.sig-item .val em{font-style:normal; font-size:12px; font-weight:600; color:var(--ink-3);
+  letter-spacing:0; margin-left:1px}
+.sig-item .val.none{font-weight:600; color:var(--ink-3); opacity:.45}
+.sig-item .dl{font-size:12px; font-weight:650; line-height:1; letter-spacing:-.005em;
+  font-variant-numeric:tabular-nums; color:var(--ink-3)}
+.sig-item .dl.up{font-weight:720; color:var(--lvl-high)}
+.sig-item.hot{border-color:color-mix(in srgb, var(--lvl-elevated-soft) 62%, transparent);
+  background:color-mix(in srgb, var(--lvl-elevated-soft) 13%, var(--glass))}
+.sig-item.hot .nm{color:var(--ink)}
+.sig-item.hot .val{color:var(--lvl-high)}
 .sig-item.miss{background:rgba(255,255,255,.46)}
-.sig-item.miss .ic{opacity:.55}
 .sig-hint{font-size:12.5px; line-height:1.4; color:var(--ink-3); font-weight:600;
   text-align:center; margin:12px 10px 0}
 
@@ -382,13 +385,17 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .cta .tx span{display:block; font-size:12.5px; margin-top:2px; color:var(--ink-2); line-height:1.35}
 .cta>svg{width:17px; height:17px; opacity:.55; flex:none}
 
-/* ── Treiberliste ── */
+/* ── Treiberliste ──
+   Wie die Kennzahlen ohne Symbole: Name und Belegzeile links, Abweichung
+   rechts. Der Balken darunter zeigt den Anteil am Gesamtwert. */
 .drv{padding:6px}
-.drv-item{display:flex; align-items:center; gap:12px; padding:12px 12px; border-radius:14px}
+.drv-item{display:flex; align-items:center; gap:12px; padding:13px 14px; border-radius:14px}
 .drv-item+.drv-item{box-shadow:inset 0 1px 0 rgba(140,170,220,.20)}
-.drv-item .ic{width:36px; height:36px; border-radius:11px; flex:none; display:grid; place-items:center;
+/* Nur noch für Statusmarken im Admin- und Testbereich, nicht mehr als
+   Schmuck neben jedem Kennzahlen- oder Diagnostiknamen. */
+.drv-item .ic{width:34px; height:34px; border-radius:11px; flex:none; display:grid; place-items:center;
   background:var(--blue-100)}
-.drv-item .ic svg{width:17px; height:17px}
+.drv-item .ic svg{width:16px; height:16px}
 .drv-item .tx{flex:1; min-width:0}
 .drv-item .tx b{display:block; font-size:15px; font-weight:680; letter-spacing:-.01em}
 .drv-item .tx span{display:block; font-size:12.5px; color:var(--ink-3); margin-top:2px}
