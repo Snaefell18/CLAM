@@ -718,10 +718,11 @@ function renderHome(){
   /* Signalkacheln. Nur, was das gewählte Wearable liefern kann plus die
      Patienteneingaben — sonst stünden dauerhaft leere Kacheln da. */
   const tiles = sigTiles(r);
-  html += `<div class="sig-grid">${tiles.html}</div>`;
+  html += `<p class="group-label" style="margin-top:24px">Deine Kennzahlen</p>
+    <div class="glass sig-list">${tiles.html}</div>`;
   if (tiles.missing) html += `<p class="sig-hint">${
     tiles.missing === 1 ? "Eine Kennzahl fehlt noch" : `${tiles.missing} Kennzahlen fehlen noch`
-  } — tippe die Kachel an, um sie einzutragen.</p>`;
+  } — tippe die Zeile an, um sie einzutragen.</p>`;
 
   html += `
     <div class="disclaimer">
@@ -738,7 +739,7 @@ function renderHome(){
   const ring = $(".ring", $("#h-hero"));
   if (ring && r && r.prob != null) ring.onclick = openRiskDetail;
 
-  $$(".sig", $("#h-hero")).forEach(el => el.onclick = () => {
+  $$(".sig-item", $("#h-hero")).forEach(el => el.onclick = () => {
     const id = el.dataset.id;
     if (SIGNALS[id]?.src === "pro") openCheckin(); else openVitals();
   });
@@ -814,13 +815,19 @@ function ctaHTML(r){
     </button>`;
 }
 
-/* Kacheln für die einzelnen Kennzahlen. Zeigt Wert und Abweichung. */
-/* Kacheln für die einzelnen Kennzahlen. Zeigt Wert und Abweichung.
+/* Zeilen statt Kacheln für die einzelnen Kennzahlen.
 
-   Bewusst ohne "eintragen" unter jeder leeren Kachel: neunmal dieselbe
-   Aufforderung liest sich wie ein Mängelprotokoll. Ein Strich sagt
-   dasselbe, und ein einzelner Hinweis unter dem Raster erklärt, was zu
-   tun ist. Zurück kommt deshalb auch die Zahl der Lücken. */
+   Bewusst kein "eintragen" unter jeder leeren Zeile: neunmal dieselbe
+   Aufforderung liest sich wie ein Mängelprotokoll. Ein einzelner Hinweis
+   unter der Liste sagt, wie viele fehlen und was zu tun ist.
+
+   Und bewusst eine Liste statt eines 3-Spalten-Rasters: ein Gitter wird
+   ungleich hoch, sobald ein Name umbricht ("Morgensteifigkeit") und der
+   daneben nicht ("HRV") — CSS Grid streckt die ganze Reihe auf die
+   höchste Zelle, darunter bleibt bei den kurzen Namen Luft. Als Liste
+   trägt jede Zeile nur ihre eigene Höhe; Flexbox richtet Label und Wert
+   unabhängig von der Textlänge sauber aus. Dieselbe Zeilensprache wie
+   bei der Aufschlüsselung und den Laborwerten (.drv-item). */
 function sigTiles(r){
   const wear = WEARABLES.find(w => w.id === S.profile?.wearable);
   const cond = CONDITIONS.find(c => c.id === S.profile?.condition);
@@ -834,13 +841,15 @@ function sigTiles(r){
     const S_ = SIGNALS[id];
     const v = S.day?.[id];
     const s = r?.signals?.[id];
+    const icon = SIG_ICON[id] || ICON.info;
 
     if (!Number.isFinite(v)){
       missing++;
       return `
-        <div class="sig miss" data-id="${id}">
-          <span class="eyebrow">${esc(S_.label)}</span>
-          <b>—</b><span class="d"></span>
+        <div class="sig-item miss" data-id="${id}">
+          <span class="ic">${icon}</span>
+          <span class="tx"><b>${esc(S_.label)}</b></span>
+          <span class="val ok">eintragen</span>
         </div>`;
     }
 
@@ -849,14 +858,14 @@ function sigTiles(r){
                 : id === "sleep" ? dec1(v)
                 : Math.round(v);
     const hot = s?.active;
-    /* Ohne Baseline gibt es noch keine Abweichung. Die Zeile bleibt dann
-       leer statt einen Strich zu zeigen — der sähe aus wie ein Messwert
-       von null. */
+    /* Ohne Baseline gibt es noch keine Abweichung. Dann steht nur der
+       Wert da, kein Strich — der sähe aus wie eine Messung von null. */
     return `
-      <div class="sig${hot ? " hot" : ""}" data-id="${id}">
-        <span class="eyebrow">${esc(S_.label)}</span>
-        <b>${shown}</b>
-        <span class="d ${hot ? "up" : "ok"}">${s ? deltaText(id, s) : ""}</span>
+      <div class="sig-item${hot ? " hot" : ""}" data-id="${id}">
+        <span class="ic">${icon}</span>
+        <span class="tx"><b>${esc(S_.label)}</b>
+          ${s ? `<span class="${hot ? "up" : "ok"}">${deltaText(id, s)}</span>` : ""}</span>
+        <span class="val${hot ? " up" : ""}">${shown}${S_.unit && !S_.unit.startsWith("/") && id !== "steps" ? ` <em>${esc(S_.unit)}</em>` : ""}</span>
       </div>`;
   }).join("");
 

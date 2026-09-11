@@ -309,25 +309,34 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .conf small{font-size:11.5px; font-weight:700; color:var(--ink-3); white-space:nowrap;
   letter-spacing:.02em}
 
-/* ── Signalkacheln ── */
-.sig-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:22px}
-.sig{padding:13px 11px; border-radius:var(--r-md); background:var(--glass); text-align:left;
-  backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
-  border:1px solid var(--glass-line); box-shadow:var(--shadow-s);
-  transition:transform .14s, border-color .18s}
-.sig:active{transform:scale(.97)}
-.sig .eyebrow{font-size:9.5px; letter-spacing:.07em}
-.sig b{display:block; font-size:17px; font-weight:750; letter-spacing:-.025em; margin-top:5px;
-  font-variant-numeric:tabular-nums}
-.sig .d{display:block; font-size:11.5px; font-weight:700; margin-top:3px;
-  font-variant-numeric:tabular-nums}
-.sig .d.up{color:var(--lvl-high)}
-.sig .d.ok{color:var(--ink-3)}
-.sig.hot{border-color:rgba(240,201,95,.65); background:rgba(254,250,238,.85)}
-.sig.miss b{color:var(--ink-3); font-weight:600; font-size:15px}
-/* Die Zeile bleibt auch leer stehen, damit alle Kacheln gleich hoch
-   sind — sonst springt die Rasterhöhe je nachdem, was erfasst ist. */
-.sig .d{min-height:14px}
+/* ── Kennzahlen: eine Liste statt eines Kachelrasters ──
+   Ein 3-Spalten-Gitter wird ungleich hoch, sobald ein Name in einer
+   Zelle umbricht ("Morgensteifigkeit") und der daneben nicht ("HRV") —
+   CSS Grid streckt die ganze Reihe auf die höchste Zelle, und unter den
+   kurzen Namen bleibt Luft stehen. Als Liste trägt jede Zeile nur ihre
+   eigene Höhe: Icon links, Name und Abweichung in der Mitte, Wert
+   rechts — Flexbox richtet das unabhängig von der Textlänge sauber aus.
+   Dieselbe Zeilensprache wie bei der Aufschlüsselung (.drv-item). */
+.sig-list{padding:6px; margin-top:2px}
+.sig-item{display:flex; align-items:center; gap:12px; padding:12px 12px; border-radius:14px;
+  text-align:left; transition:background .15s}
+.sig-item+.sig-item{box-shadow:inset 0 1px 0 rgba(140,170,220,.20)}
+.sig-item:active{background:rgba(255,255,255,.55)}
+.sig-item .ic{width:36px; height:36px; border-radius:11px; flex:none; display:grid; place-items:center;
+  background:var(--blue-100)}
+.sig-item .ic svg{width:17px; height:17px}
+.sig-item .tx{flex:1; min-width:0}
+.sig-item .tx b{display:block; font-size:15px; font-weight:680; letter-spacing:-.01em}
+.sig-item .tx span{display:block; font-size:12.5px; font-weight:700; margin-top:2px}
+.sig-item .tx span.up{color:var(--lvl-high)}
+.sig-item .tx span.ok{color:var(--ink-3); font-weight:600}
+.sig-item .val{flex:none; font-size:17px; font-weight:750; letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums; color:var(--ink)}
+.sig-item .val em{font-style:normal; font-size:12px; font-weight:600; color:var(--ink-3); margin-left:1px}
+.sig-item .val.up{color:var(--lvl-high)}
+.sig-item .val.ok{font-size:14px; font-weight:650; color:var(--blue-600)}
+.sig-item.hot .ic{background:color-mix(in srgb, var(--lvl-elevated-soft) 45%, transparent)}
+.sig-item.miss .ic{opacity:.55}
 .sig-hint{font-size:12.5px; line-height:1.4; color:var(--ink-3); font-weight:600;
   text-align:center; margin:12px 10px 0}
 
