@@ -59,8 +59,8 @@ export const JOINTS = [
 /* ─────────────────  MEDIKAMENTE  ─────────────────
    tdm = für diesen Wirkstoff ist ein Wirkstoffspiegel (Therapeutisches
    Drug Monitoring) etabliert. Nur dann schlägt die App bei erhöhtem
-   Risiko eine PoC-TDM-Bestimmung vor — bei Methotrexat etwa wäre das
-   klinisch nicht üblich.
+   Diese Kennzeichnung steuert nur die Auswahl nachtragbarer Laborwerte.
+   Automatische Untersuchungs- und Therapieempfehlungen sind deaktiviert.
    ada = Anti-Drug-Antikörper sind bei diesem Wirkstoff ein Thema. */
 export const DRUGS = [
   { id:"adalimumab",  n:"Adalimumab",    g:"TNF-Blocker",  tdm:true,  ada:true,  every:14 },
@@ -197,9 +197,8 @@ von dir eingetragene Laborwerte.</p>
 <p>Konto und Daten liegen in deinem Firebase-Projekt. Fotos und Kennzahlen
 werden zur Auswertung an die Claude-API von Anthropic übermittelt.</p>
 <h4>Weitergabe an deine Praxis</h4>
-<p>Eine Meldung an deine Praxis wird ausschließlich auf deine ausdrückliche
-Bestätigung hin erzeugt und versendet. Ohne dein Zutun verlässt kein Bericht
-die App.</p>
+<p>Ein Bericht wird nur nach deiner Bestätigung gespeichert. CLAM versendet
+ihn derzeit nicht; du musst ihn selbst an deine Praxis weitergeben.</p>
 <h4>Deine Rechte</h4>
 <p>Du kannst deine Daten jederzeit exportieren und dein Konto mit allen Daten
 vollständig löschen — beides in den Einstellungen.</p>
@@ -211,11 +210,11 @@ mit Google (Firebase) und Anthropic.</p>`,
 <p>CLAM erkennt Abweichungen von deinen persönlichen Normalwerten und weist
 dich darauf hin, wenn eine ärztliche Abklärung sinnvoll sein könnte.</p>
 <h4>Keine Diagnose, keine Therapie</h4>
-<p>CLAM ist kein Medizinprodukt. Die App stellt keine Diagnose, empfiehlt keine
-Therapie und ersetzt keinen Arztbesuch. Alle Hinweise sind Anhaltspunkte für
-ein Gespräch mit deiner Praxis.</p>
+<p>CLAM befindet sich in Entwicklung. Eine Medizinprodukte-Einordnung steht
+noch aus. Die App stellt keine Diagnose und ersetzt keinen Arztbesuch.
+Alle Hinweise sind Anhaltspunkte für ein Gespräch mit deiner Praxis.</p>
 <h4>Grenzen der Berechnung</h4>
-<p>Das Schubrisiko beruht auf Hypothesen aus der aktuellen Forschung und auf
+<p>Die Einstufung beruht auf Hypothesen aus der aktuellen Forschung und auf
 deinen eigenen Verlaufsdaten. Es gibt keine validierten Grenzwerte. Ein
 niedriges Risiko schließt einen Schub nicht aus.</p>
 <h4>Im Notfall</h4>

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Closed-Loop Autoimmune Management — Schubrisiko erkennen, gezielt abklären.",
+  "description": "CLAM — Verlaufsdokumentation bei rheumatoider Arthritis.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
   "dependencies": {
     "firebase-admin": "^13.0.1"
   }

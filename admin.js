@@ -26,7 +26,7 @@
    ══════════════════════════════════════════════════════════════════ */
 
 import {
-  doc, getDoc, setDoc
+  doc, getDoc, setDoc, collection, getDocs, updateDoc
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 import {
@@ -52,7 +52,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 
 const myEmail = () => (ctx?.auth?.currentUser?.email || "").toLowerCase();
-export const isRoot = () => myEmail() === ROOT_ADMIN;
+export const isRoot = () => ctx?.auth?.currentUser?.emailVerified === true && myEmail() === ROOT_ADMIN;
 
 /* ─────────────────  ZUGANG PRÜFEN  ─────────────────
    Der Wurzel-Admin steht fest. Für alle anderen ist der Leseversuch auf
@@ -60,7 +60,7 @@ export const isRoot = () => myEmail() === ROOT_ADMIN;
    an Admins heraus. Damit muss die Liste der Admin-Adressen nicht für
    jeden lesbar sein, nur damit die App weiß, wer Admin ist. */
 export async function checkAdmin(){
-  if (!ctx?.auth?.currentUser) return false;
+  if (!ctx?.auth?.currentUser?.emailVerified) return false;
   if (isRoot()) { await loadAdminList(); return true; }
   try {
     const snap = await getDoc(doc(ctx.db, "config", "admins"));
@@ -124,6 +124,11 @@ export function openAdmin(){
           <span>${adminEmails.length + 1} ${adminEmails.length ? "Personen" : "Person"}</span></span>
         ${ICON.chev}
       </button>
+      <button class="set-row" data-act="practices">
+        <span class="tx"><b>Praxen prüfen</b>
+          <span>Identität vor dem Zugriff auf Patientendaten bestätigen</span></span>
+        ${ICON.chev}
+      </button>
       <button class="set-row" data-act="seed">
         <span class="tx"><b>Testpatienten</b>
           <span>Konten mit fertigen Verläufen für alle Risikostufen</span></span>
@@ -145,6 +150,7 @@ export function openAdmin(){
     if (a === "export") return exportXlsx();
     if (a === "import") return importXlsx();
     if (a === "admins") return openAdmins();
+    if (a === "practices") return openPractices();
     if (a === "seed")   return openSeed(openAdmin);
     if (a === "reset")  return confirmReset();
   });
@@ -324,6 +330,38 @@ async function saveAdmins(emails){
     ctx.ui.toast("Gespeichert.");
     openAdmins();
   } catch { ctx.ui.toast("Speichern fehlgeschlagen."); }
+}
+
+async function openPractices(){
+  let practices;
+  try {
+    const snap = await getDocs(collection(ctx.db, "doctors"));
+    practices = snap.docs.map(d => ({ uid:d.id, ...d.data() }));
+  } catch { return ctx.ui.toast("Praxen konnten nicht geladen werden."); }
+  ctx.ui.openSheet("Praxen prüfen", practices.length ? practices.map(p => `
+    <div class="glass card" style="margin-bottom:12px">
+      <b>${esc(p.name || "Praxis")}</b>
+      <p class="sub">${esc(p.physician || "")} · ${esc(p.mail || p.email || "")}</p>
+      <p class="hint">${p.verified === true ? "Freigeschaltet" : "Nicht verifiziert"}</p>
+      <button class="btn btn-glass btn-sm" data-practice="${esc(p.uid)}"
+        data-verified="${p.verified === true ? "false" : "true"}">
+        ${p.verified === true ? "Zugang sperren" : "Nach Identitätsprüfung freischalten"}
+      </button>
+    </div>`).join("") : `<p class="empty">Noch keine Praxen registriert.</p>`,
+    `<button class="btn btn-glass" id="pr-back">Zurück</button>`);
+  $("#pr-back").onclick = openAdmin;
+  $$("[data-practice]", $("#sheet-body")).forEach(button => button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await updateDoc(doc(ctx.db, "doctors", button.dataset.practice), {
+        verified:button.dataset.verified === "true",
+        verifiedAt:new Date().toISOString(),
+        verifiedBy:myEmail()
+      });
+      ctx.ui.toast("Praxisstatus gespeichert.");
+      openPractices();
+    } catch { button.disabled = false; ctx.ui.toast("Änderung fehlgeschlagen."); }
+  });
 }
 
 /* ─────────────────  ZURÜCKSETZEN  ───────────────── */

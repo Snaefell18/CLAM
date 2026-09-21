@@ -17,6 +17,8 @@
 
 import { readBody, callClaude, healthCheck, GUARDRAILS } from "./_claude.js";
 
+import { authorize } from "./_auth.js";
+
 export const config = { maxDuration: 60 };
 
 const SYSTEM = `Du beschreibst Fotos betroffener Körperstellen für die Verlaufs-
@@ -90,6 +92,7 @@ export default async function handler(req, res){
     const body = await readBody(req);
     if (!body) return res.status(400).json({ error:"bad_body",
       message:"Anfrage konnte nicht gelesen werden." });
+    if (!await authorize(req, res, "photo", body)) return;
 
     const { image, mime = "image/jpeg", region, condition, previous } = body;
     if (!image) return res.status(400).json({ error:"no_image",
@@ -129,8 +132,7 @@ export default async function handler(req, res){
     console.error("UNHANDLED FUNCTION ERROR", e);
     return res.status(500).json({
       error:"internal_function_error",
-      message:String(e?.message || e),
-      stack:String(e?.stack || "").split("\n").slice(0,4).join(" | ")
+      message:"Die Funktion konnte nicht ausgeführt werden."
     });
   }
 }

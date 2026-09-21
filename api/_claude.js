@@ -152,10 +152,6 @@ export function healthCheck(res, name){
   return res.status(200).json({
     endpoint: name,
     function_reachable: true,
-    api_key_present: Boolean(key),
-    api_key_length: key ? key.length : 0,
-    api_key_prefix: key ? key.slice(0, 7) : null,
-    model: MODEL,
-    node: process.version
+    available: Boolean(key)
   });
 }

@@ -75,21 +75,21 @@ export const SCENARIOS = [
 
   { id:"elevated", word:"erhoeht", label:"Erhöhtes Risiko",
     desc:"Beginnende Abweichung über zwei Tage",
-    level:"elevated", condition:"psa", days:34, flare:2, drugs:["secukinumab"] },
+    level:"elevated", condition:"ra", days:34, flare:2, drugs:["adalimumab"] },
 
   { id:"high", word:"schub", label:"Hohes Risiko",
     desc:"Deutlicher Schub, Nachfragen beantwortet, CRP nachgetragen",
     level:"high", condition:"ra", days:34, flare:3, drugs:["adalimumab","mtx"],
     followUp:true, labs:true },
 
-  { id:"reported", word:"gemeldet", label:"Hoch, bereits gemeldet",
-    desc:"Wie oben, Meldung an die Praxis ist schon raus",
+  { id:"reported", word:"gemeldet", label:"Hoch, Bericht gespeichert",
+    desc:"Wie oben, Bericht zur eigenen Weitergabe gespeichert",
     level:"high", condition:"ra", days:34, flare:3, drugs:["infliximab"],
     followUp:true, labs:true, reported:true },
 
   { id:"building", word:"neu", label:"Baseline im Aufbau",
     desc:"Erst sechs Tage erfasst, noch keine Risikoaussage",
-    level:"building", condition:"axspa", days:6, drugs:["etanercept"] },
+    level:"building", condition:"ra", days:6, drugs:["etanercept"] },
 
   { id:"empty", word:"leer", label:"Ohne Einträge",
     desc:"Profil vorhanden, noch kein einziger Tag",
@@ -175,7 +175,7 @@ function daysForLevel(scn, today){
 
     /* Bei "erhöht" reicht die Stufe allein nicht. Die Beharrlichkeits-
        regel hält einen einzelnen Tag auch dann noch auf "erhöht", wenn
-       die Wahrscheinlichkeit längst über der Schwelle für "hoch" liegt.
+       die interne Kennzahl längst über der Schwelle für "hoch" liegt.
        Als Demo wäre das irreführend: dort stünde "Erhöht" neben 75 %,
        während die Schwelle bei 62 % liegt. Deshalb muss der Wert hier
        auch im Band liegen. */
@@ -241,7 +241,8 @@ export function openSeed(back){
 
     <div class="field" style="margin-top:18px">
       <label for="sd-pass">Passwort für alle Testkonten</label>
-      <input id="sd-pass" type="text" value="clamtest2026">
+      <input id="sd-pass" type="password" autocomplete="new-password"
+             placeholder="Eigenes Testpasswort wählen">
       <p class="hint">Mindestens sechs Zeichen. Gilt für alle hier angelegten Konten.</p>
     </div>
 
@@ -337,8 +338,8 @@ async function run(ids, back){
 
         if (scn.followUp && last) last.followUp = FOLLOW_UP;
         if (scn.labs && last)     last.labs = { crp: 14.2, esr: 32 };
-        if (scn.reported && last) last.reported = {
-          at: new Date().toISOString(), level:"high", prob: 85 };
+        if (scn.reported && last) last.reportSaved = {
+          at: new Date().toISOString(), level:"high" };
 
         const cond = CONDITIONS.find(c => c.id === scn.condition) || CONDITIONS[0];
         const profile = {
@@ -357,7 +358,7 @@ async function run(ids, back){
 
         if (link){
           Object.assign(profile, {
-            doctorUid: link.uid, doctorCode: link.code,
+            doctorUid: link.uid, shareDoctorUid:link.uid, doctorCode: link.code,
             doctorName: link.practice.name || null,
             linkName: scn.label,
             linkedAt: new Date().toISOString()
@@ -366,10 +367,10 @@ async function run(ids, back){
             ? assess(days, today, assess(days, shift(today, -1)))
             : { level:"nodata", prob:null, confidence:null, drivers:[] };
           profile.lastRisk = {
-            level: r.level,
-            prob: r.prob == null ? null : Math.round(r.prob * 1000) / 1000,
-            confidence: r.confidence == null ? null : Math.round(r.confidence * 100) / 100,
-            drivers: (r.drivers || []).slice(0,3).map(x => x.id),
+            level: scn.condition === "ra" ? r.level : "unsupported",
+            prob: scn.condition === "ra" && r.prob != null ? Math.round(r.prob * 1000) / 1000 : null,
+            confidence: scn.condition === "ra" && r.confidence != null ? Math.round(r.confidence * 100) / 100 : null,
+            drivers: scn.condition === "ra" ? (r.drivers || []).slice(0,3).map(x => x.id) : [],
             date: today, at: new Date().toISOString()
           };
         }
@@ -378,6 +379,13 @@ async function run(ids, back){
         for (const d of days){
           const { key, ...rest } = d;
           await setDoc(doc(db2, "users", uid, "days", key), rest);
+        }
+        if (scn.reported && last){
+          await setDoc(doc(db2, "users", uid, "reports", "seed-report"), {
+            at:last.reportSaved.at, dayKey:today, level:"high", status:"stored",
+            summary:"Synthetischer Testbericht aus CLAM. Dieser Text wurde gespeichert, aber nicht an eine Praxis versendet.",
+            practice:{ name:link?.practice.name || null, mail:null }
+          });
         }
 
         results.push({ scn, mail, ok:true, ...built });
@@ -405,8 +413,7 @@ async function run(ids, back){
               : esc(r.msg)}</span></span>
         </div>`).join("")}
     </div>
-    ${link ? `<p class="hint">Verknüpft mit ${esc(link.practice.name || link.code)}.</p>` : ""}
-    <p class="hint">Passwort für alle: <b>${esc(pass)}</b></p>`;
+    ${link ? `<p class="hint">Verknüpft mit ${esc(link.practice.name || link.code)}.</p>` : ""}`;
 
   $("#sd-go").disabled = false;
   ctx.ui.toast(good === results.length

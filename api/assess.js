@@ -19,6 +19,8 @@
 
 import { readBody, callClaude, healthCheck, GUARDRAILS } from "./_claude.js";
 
+import { authorize } from "./_auth.js";
+
 export const config = { maxDuration: 30 };
 
 const SYSTEM = `Du unterstützt Menschen mit einer chronischen Autoimmunerkrankung
@@ -99,6 +101,7 @@ export default async function handler(req, res){
     const body = await readBody(req);
     if (!body) return res.status(400).json({ error:"bad_body",
       message:"Anfrage konnte nicht gelesen werden." });
+    if (!await authorize(req, res, "assess", body)) return;
 
     const {
       condition, conditionName, level, prob, drivers = [],
@@ -124,7 +127,7 @@ export default async function handler(req, res){
     }
     if (missedDose) lines.push("Die letzte fällige Dosis wurde vergessen.");
     lines.push("");
-    lines.push(`Eingestuftes Schubrisiko: ${level} (${prob} %)`);
+    lines.push(`Auffälligkeit gegenüber der Baseline: ${level}; keine klinisch validierte Vorhersage.`);
     lines.push("");
     lines.push("Abweichungen gegenüber der persönlichen Baseline, stärkste zuerst:");
     for (const d of drivers)
@@ -146,8 +149,7 @@ export default async function handler(req, res){
     console.error("UNHANDLED FUNCTION ERROR", e);
     return res.status(500).json({
       error:"internal_function_error",
-      message:String(e?.message || e),
-      stack:String(e?.stack || "").split("\n").slice(0,4).join(" | ")
+      message:"Die Funktion konnte nicht ausgeführt werden."
     });
   }
 }

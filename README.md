@@ -1,22 +1,24 @@
 # CLAM — Closed-Loop Autoimmune Management
 
-Erkennt bei Autoimmunerkrankungen früh Hinweise auf einen möglichen Schub und
-führt Patient und Praxis rechtzeitig zur passenden Diagnostik.
+CLAM erfasst Wearable-Werte und Selbstauskünfte. Für rheumatoide Arthritis
+zeigt die App eine **nicht klinisch validierte** Einstufung von Abweichungen
+gegenüber der persönlichen Baseline. Für andere Erkrankungen werden Einträge
+gespeichert, aber keine Risikostufe berechnet.
 
 Der geschlossene Kreis:
 
 ```
 Wearable + Tages-Check + Fotos
-   → Schubrisiko gegen die persönliche Baseline
-   → gezielte Nachfragen bei erhöhtem Risiko
-   → Meldung an die Praxis
-   → dort Diagnostik (PoC-TDM, Entzündungswerte)
-   → Befund zurück in die App
-   → nächster Verlauf auf besserer Grundlage
+   → Abweichung gegen die persönliche Baseline (nur RA)
+   → gezielte Nachfragen bei erhöhter Einstufung
+   → Bericht zur eigenen Weitergabe speichern oder kopieren
+   → Laborwerte selbst nachtragen
 ```
 
-Die App diagnostiziert nicht und legt keine Therapie fest. Sie erkennt
-Abweichungen vom individuellen Normal und macht daraus eine Handlung.
+Die App diagnostiziert nicht und legt keine Therapie fest. Eine automatische
+Zustellung oder Bestätigung durch eine Praxis gibt es noch nicht. Vor einem
+Einsatz mit echten Patientendaten sind klinische, rechtliche und
+datenschutzrechtliche Prüfungen erforderlich.
 
 ---
 
@@ -73,15 +75,18 @@ firebase login
 firebase deploy --only firestore:rules
 ```
 
-`firestore.rules` ist bewusst streng: **jeder kommt nur an die eigenen Daten**,
-kein Praxiszugang über die Datenbank.
+`firestore.rules` erlaubt der angemeldeten Person Zugriff auf ihre Daten.
+Eine **verifizierte Praxis** kann nach ausdrücklicher Verknüpfung das Profil
+und den Verlauf lesen, jedoch keine Fotos. Neue und bestehende Praxis-Konten
+müssen im Adminbereich geprüft und freigeschaltet werden. Die E-Mail-Adresse
+der Praxis muss verifiziert sein.
 
 **Firebase Storage wird nicht gebraucht.** Es setzt den Blaze-Plan voraus,
 deshalb liegen auch die Fotos in Firestore — ein Dokument je Bild, vorher auf
 ein festes Budget heruntergerechnet (siehe unten). Der kostenlose Spark-Plan
 reicht damit für die ganze App.
 
-### 3. Claude-API-Key · **erforderlich**
+### 3. Server-Zugangsdaten · **für KI-Funktionen erforderlich**
 
 Du sagst, den hast du. Er gehört **niemals ins Frontend**, sondern als
 Umgebungsvariable auf den Server:
@@ -91,10 +96,16 @@ Vercel → Projekt → **Settings → Environment Variables**
 | Name | Wert |
 |---|---|
 | `ANTHROPIC_API_KEY` | `sk-ant-…` |
+| `FIREBASE_SERVICE_ACCOUNT` | vollständiges JSON des Firebase-Dienstkontos |
 
-Danach einmal neu deployen. Prüfen kannst du es, indem du
-`https://deine-domain/api/assess` im Browser aufrufst — dort steht dann
-`"api_key_present": true`.
+Das Dienstkonto ist jetzt auch für die Autorisierung der KI-Endpunkte
+erforderlich. Erstelle es unter Firebase → Projekteinstellungen → Dienstkonten.
+Die Funktionen prüfen Firebase-ID-Token, Einwilligung und Tageskontingente.
+Die KI-Einwilligung ist im Onboarding optional und kann in den Einstellungen
+widerrufen werden. Ohne sie verwendet die App lokale Standardfragen und einen
+einfachen Berichtstext; die Fotoauswertung ist dann nicht verfügbar.
+Ein GET-Aufruf von `/api/assess` meldet nur Erreichbarkeit und Key-Konfiguration;
+er prüft **nicht** den gesamten Anmelde- und Berechtigungspfad.
 
 Alle drei Claude-Endpunkte laufen über **Sonnet 5**, serverseitig festgelegt in
 `api/_claude.js`. Wenn du günstiger fahren willst, ist das die eine Zeile, die
@@ -109,50 +120,32 @@ npm i -g vercel
 vercel
 ```
 
-`package.json` und `vercel.json` liegen bereit. Die einzige Abhängigkeit ist
-`firebase-admin`, und die braucht nur der Ingest-Endpunkt aus Schritt 5.
+`package.json` und `vercel.json` liegen bereit. Die Server-Abhängigkeit ist
+`firebase-admin`. Vor dem Deploy der App die neuen Firestore-Regeln
+veröffentlichen; sonst greifen Token-Trennung, Praxisprüfung und
+Katalogarchivierung nicht vollständig.
 
-### 5. Dienstkonto für die automatische Wearable-Übernahme · optional
+### 5. Automatische Wearable-Übernahme · optional
 
-Nur nötig, wenn sich die Werte per Apple-Kurzbefehl automatisch eintragen
-sollen. Ohne das trägt man Vitalwerte von Hand ein und die App funktioniert
-vollständig.
+Ohne Kurzbefehl lassen sich Vitalwerte von Hand eintragen. Das Dienstkonto
+aus Schritt 3 ist auch für diesen Endpunkt erforderlich.
 
-Firebase-Konsole → **Projekteinstellungen → Dienstkonten → Neuen privaten
-Schlüssel generieren**. Das heruntergeladene JSON **komplett** (als eine Zeile)
-in Vercel eintragen:
-
-| Name | Wert |
-|---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | `{"type":"service_account", …}` |
-
-Der Endpunkt repariert die `\n` im privaten Schlüssel selbst — das ist der
-häufigste Stolperstein beim Kopieren.
+Der Endpunkt repariert `\n` im privaten Schlüssel selbst. Alte
+Kurzbefehl-Schlüssel sind aus Sicherheitsgründen ungültig: In den Einstellungen
+einen neuen Schlüssel erzeugen und im Kurzbefehl ersetzen. Der neue Schlüssel
+liegt in einem privaten Dokument; auf dem Server liegt nur sein SHA-256-Hash.
 
 Danach erzeugt sich jeder Nutzer in den App-Einstellungen unter
 **Automatische Übernahme** einen persönlichen Schlüssel und baut den
 Kurzbefehl (Anleitung steht in der App, Beispiel weiter unten).
 
-### 6. Mailversand an die Praxis · optional
+### 6. Bericht an die Praxis · manuell
 
-Aktuell wird ein Bericht erzeugt, dir vollständig angezeigt und nach deiner
-Bestätigung in Firestore unter `users/{uid}/reports` mit `status: "queued"`
-abgelegt. Der tatsächliche Mailversand ist **noch nicht angebunden** — bewusst,
-denn dafür brauche ich eine Entscheidung von dir:
-
-- **Wer ist Absender?** Eine eigene Domain (`praxis@clam.app`) braucht
-  SPF/DKIM, sonst landet die Mail im Spam.
-- **Welcher Dienst?** Resend, Postmark und SendGrid haben alle brauchbare
-  kostenlose Kontingente. Ich würde **Resend** nehmen: am wenigsten Aufwand.
-- **Braucht die Praxis eine Empfangsbestätigung oder einen Rückkanal?**
-
-Sag mir, was du willst, dann baue ich `api/send.js` plus eine Firestore-Trigger-
-Function, die `queued` abarbeitet und auf `sent` setzt.
-
-> **Wichtig für den Datenschutz:** Ein Gesundheitsbericht per unverschlüsselter
-> E-Mail ist heikel. Sauberer wäre ein Link auf eine geschützte Ansicht, in der
-> die Praxis den Bericht abruft. Wenn das produktiv gehen soll, sollten wir
-> darüber reden, bevor wir Mails verschicken.
+Ein Bericht wird nach Bestätigung mit `status: "stored"` gespeichert und kann
+kopiert werden. Die Patientin oder der Patient muss ihn selbst weitergeben.
+Es gibt keinen Mailversand, keinen Übermittlungsnachweis und keine
+Empfangsbestätigung. Für einen geschlossenen Praxisablauf braucht es später
+einen gesicherten Versandweg und einen Rückkanal.
 
 ---
 
@@ -173,7 +166,7 @@ CLAM/
 │  ├─ assess.js        gezielte Nachfragen bei erhöhtem Risiko
 │  ├─ photo.js         Auswertung der Gelenkfotos
 │  ├─ report.js        Bericht für die Praxis
-│  ├─ advice.js        Empfehlung für die Praxis
+│  ├─ advice.js        fachliche KI-Empfehlung derzeit deaktiviert
 │  └─ ingest.js        Apple-Kurzbefehl → Firestore
 ├─ firestore.rules     Zugriffsregeln
 ├─ tools-make-icons.mjs  erzeugt den PNG-Iconsatz aus der Vektormarke
@@ -239,18 +232,17 @@ Deshalb steht jede Zahl in `risk.js` an genau einer Stelle, kommentiert und
 einzeln änderbar — in `WEIGHTS` und `GATES`. Sobald eigene Verlaufsdaten oder
 neue Studien Besseres hergeben, wird nur diese Datei angefasst.
 
-Die ausgegebene Prozentzahl ist auf Plausibilität kalibriert, nicht auf
-gemessene Ereignisraten. Sie wird bewusst auf 5er-Schritte gerundet: eine
-Nachkommastelle würde eine Genauigkeit vortäuschen, die diese Kalibrierung
-nicht hat.
+Die internen Zahlen sind **keine Schubwahrscheinlichkeiten** und erscheinen
+deshalb nicht mehr als Prozentwert in der Oberfläche. Auch die angezeigten
+Stufen müssen klinisch validiert werden.
 
 ---
 
 ## Testpatienten
 
 Im Adminbereich unter *Testpatienten*. Legt sechs Konten mit fertigen Verläufen
-an, die zusammen alle Zustände der App zeigen: niedriges Risiko, erhöhtes,
-hohes, hohes mit bereits gesendeter Meldung, Baseline im Aufbau, ganz ohne
+an, die zusammen wichtige Zustände der App zeigen: niedrige, erhöhte und
+hohe Einstufung, hoher Wert mit gespeichertem Bericht, Baseline im Aufbau, ganz ohne
 Einträge. Anmeldung mit einem Wort plus Passwort, etwa `schub@clam.test`.
 Optional lassen sie sich beim Anlegen gleich mit einer Praxis verknüpfen —
 dann stehen alle sechs sofort in deren Liste.
@@ -270,8 +262,8 @@ ergeben sollen, ergeben irgendwann nicht mehr „hoch" — spätestens, wenn du 
 Adminbereich Gewichte oder Schwellen änderst. Der Generator steigert die
 Auslenkung deshalb schrittweise und prüft nach jedem Schritt mit derselben
 `assess`-Funktion, die auch die App benutzt. Beim Szenario „erhöht" muss die
-Wahrscheinlichkeit zusätzlich im zugehörigen Band liegen, sonst stünde dort
-„Erhöht" neben 75 %, während die Schwelle für „hoch" bei 62 % liegt.
+interne Kennzahl zusätzlich im zugehörigen Band liegen, damit die
+Testfälle auch bei geänderten Schwellen zur gezeigten Stufe passen.
 
 Die Domain `clam.test` ist dauerhaft reserviert und wird nie an jemanden
 vergeben — Testkonten können also nie eine echte Adresse treffen. Über
@@ -291,7 +283,10 @@ eigenes Modul, eigene Sammlungen.
 Code nach dem Muster `CLyyxxxx` — zwei Buchstaben, vier Ziffern. `I` und `O`
 kommen nicht vor: am Telefon vorgelesen sind sie von `1` und `0` nicht zu
 unterscheiden, und dieser Code wird vorgelesen. Vor der Vergabe wird geprüft,
-ob er frei ist.
+ob er frei ist. Der Code ist erst nach Prüfung und Freischaltung der Praxis
+durch einen Admin sowie verifizierter E-Mail-Adresse für Verknüpfungen nutzbar.
+Ändert eine Praxis später ihre Stammdaten, wird der Zugriff bis zur erneuten
+Prüfung gesperrt.
 
 **Verknüpfung.** Der Patient trägt den Code unter *Einstellungen → Praxis
 verknüpfen* ein, sieht vor der Bestätigung, welche Praxis er da freischaltet,
@@ -310,10 +305,8 @@ Abfrage kostet statt einen Verlauf je Patient. Gelöst der Patient die
 Verknüpfung, wird die Kurzfassung mitgelöscht — sie existierte nur, weil
 jemand sie sehen durfte. Sortiert wird nach Dringlichkeit, nicht alphabetisch.
 
-**Empfehlung.** Pro Patient auf Knopfdruck über `/api/advice`. Zielgruppe ist
-hier ärztliches Personal, der Text darf also fachlich werden. Er bleibt
-Entscheidungsunterstützung: keine Dosierungen, keine Verordnung, keine
-Diagnose, und die Grenzen der Datengrundlage stehen drin.
+**Fachliche KI-Empfehlungen** über `/api/advice` sind bis zur klinischen Prüfung
+deaktiviert.
 
 ---
 
@@ -332,9 +325,10 @@ Steifigkeitsstufen. Also alles, worauf die Berechnung fußt.
 (`data.js`, `risk.js`). `catalog.js` legt einen in Firestore gepflegten Katalog
 darüber und überschreibt die Strukturen **an Ort und Stelle** — `CONDITIONS`,
 `SIGNALS`, `WEIGHTS` bleiben dieselben Objekte, nur ihr Inhalt wechselt.
-Dadurch funktioniert jeder bestehende Import unverändert. Fehlt der Katalog
-oder ist Firestore nicht erreichbar, läuft die App auf den Vorgaben weiter; es
-gibt keinen Zustand ohne Stammdaten.
+Dadurch funktioniert jeder bestehende Import unverändert. Fehlt der Katalog,
+gelten die Vorgaben aus dem Code. Ist Firestore nicht erreichbar, stoppt die
+App, damit nicht stillschweigend eine andere Rechengrundlage verwendet wird.
+Neue Katalogstände werden als unveränderliche Versionen archiviert.
 
 **Prüfung vor jedem Speichern.** Doppelte Kennungen, fehlende Pflichtfelder,
 Nichtzahlen in Zahlenspalten und tote Querverweise werden abgewiesen — eine
@@ -419,20 +413,15 @@ Die Texte unter **Datenschutz** und **Nutzungsbedingungen** in `data.js` sind
 - Auftragsverarbeitungsverträge mit Google (Firebase) und Anthropic
 - eine anwaltliche Einschätzung zur **Abgrenzung vom Medizinprodukt nach MDR**
 
-Zum letzten Punkt: Die App ist durchgehend so gebaut, dass sie beschreibt statt
-beurteilt — kein „Sie haben einen Schub", sondern „diese Werte weichen von deiner
-Baseline ab". Der Hinweis „kein Medizinprodukt, keine Diagnose" steht an jeder
-Stelle, an der ein Risikowert auftaucht, und dieselbe Regel steht als Leitplanke
-in jedem System-Prompt an Claude. Das ist eine bewusste Konstruktion, aber
-**keine Rechtsberatung** — sobald ein Risikoscore einer konkreten Person
-zugeordnet wird, ist die MDR-Frage real und gehört geprüft.
+Die Einstufung einer konkreten Person kann trotz vorsichtiger Wortwahl unter
+Medizinprodukterecht fallen. Die Einordnung ist offen und muss vor einem
+produktiven Einsatz fachlich und rechtlich geprüft werden.
 
 ---
 
 ## Was als Nächstes sinnvoll wäre
 
-- **Mailversand** an die Praxis (siehe Punkt 6 oben) — dafür brauche ich deine
-  Entscheidung.
+- **Gesicherte Zustellung** eines Berichts an die Praxis mit Empfangsbestätigung.
 - **Push-Benachrichtigungen**, wenn das Risiko steigt. Auf iOS geht das seit
   16.4 auch für installierte PWAs.
 - **Rückkanal aus der Praxis**: aktuell trägt der Patient die Laborwerte selbst

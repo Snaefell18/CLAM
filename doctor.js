@@ -52,7 +52,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
 
 const LEVEL_TEXT = {
   low:"Niedrig", elevated:"Erhöht", high:"Hoch",
-  building:"Baseline läuft", nodata:"Keine Daten"
+  building:"Baseline läuft", nodata:"Keine Daten", unsupported:"Nicht bewertet"
 };
 
 /* ─────────────────  1. CODE  ─────────────────
@@ -94,6 +94,7 @@ export async function resolveCode(db, code){
     const uid = snap.data().doctorUid;
     const d = await getDoc(doc(db, "doctors", uid));
     if (!d.exists()) return { ok:false, reason:"unknown" };
+    if (d.data().verified !== true) return { ok:false, reason:"unverified" };
     return { ok:true, code:clean, uid, practice:d.data() };
   } catch { return { ok:false, reason:"offline" }; }
 }
@@ -151,6 +152,7 @@ export function renderDoctorOnboarding(){
       const code = await reserveCode(ctx.db, uid);
       practice = {
         ...draft, code, uid,
+        verified:false,
         email: ctx.auth.currentUser.email || null,
         createdAt: new Date().toISOString()
       };
@@ -177,23 +179,25 @@ async function loadPatients(){
   try {
     const snap = await getDocs(query(
       collection(ctx.db, "users"),
-      where("doctorUid", "==", ctx.auth.currentUser.uid)));
+      where("shareDoctorUid", "==", ctx.auth.currentUser.uid)));
     snap.forEach(d => patients.push({ uid:d.id, ...d.data() }));
   } catch (e){
     console.warn("Patienten nicht geladen:", e?.message || e);
   }
   /* Dringendstes zuerst: wer ein hohes Risiko trägt, gehört nach oben.
-     Innerhalb einer Stufe die höhere Wahrscheinlichkeit zuerst. */
+     Innerhalb einer Stufe die höhere interne Kennzahl zuerst. */
   const rank = { high:0, elevated:1, low:2, building:3, nodata:4 };
   patients.sort((a, b) => {
-    const ra = rank[a.lastRisk?.level] ?? 5, rb = rank[b.lastRisk?.level] ?? 5;
+    const ra = a.condition === "ra" ? (rank[a.lastRisk?.level] ?? 5) : 5;
+    const rb = b.condition === "ra" ? (rank[b.lastRisk?.level] ?? 5) : 5;
     if (ra !== rb) return ra - rb;
     return (b.lastRisk?.prob ?? 0) - (a.lastRisk?.prob ?? 0);
   });
 }
 
 function renderDoctorHome(){
-  const alerts = patients.filter(p => ["high","elevated"].includes(p.lastRisk?.level)).length;
+  const alerts = patients.filter(p => p.condition === "ra" &&
+    ["high","elevated"].includes(p.lastRisk?.level)).length;
 
   $("#doc-head").innerHTML = `
     <div class="head-l">
@@ -216,6 +220,9 @@ function renderDoctorHome(){
   /* Der Code steht ganz oben und ist mit einem Griff kopiert — er wird
      im Sprechzimmer weitergegeben, nicht gesucht. */
   const body = `
+    ${practice?.verified !== true ? `<div class="flag"><span class="dot"></span>
+      <span class="tx"><b>Praxisprüfung ausstehend</b>
+      Der Praxiszugang wird erst nach einer Identitätsprüfung freigeschaltet.</span></div>` : ""}
     <button class="code-card" id="doc-code">
       <span class="tx">
         <span class="eyebrow">Praxiscode</span>
@@ -245,8 +252,7 @@ function renderDoctorHome(){
     <div class="disclaimer">
       ${ICON.info}
       <p>Die Werte stammen aus einer Patienten-App, die Abweichungen von
-         individuellen Ausgangswerten misst. Kein Medizinprodukt, keine
-         Diagnose, keine validierten Grenzwerte.</p>
+         individuellen Ausgangswerten misst. Keine Diagnose; die Stufen sind nicht klinisch validiert.</p>
     </div>`;
 
   $("#doc-body").innerHTML = body;
@@ -260,13 +266,11 @@ function renderDoctorHome(){
   $$(".pat-row").forEach(el => el.onclick = () => openPatient(el.dataset.uid));
 }
 
-/* probPct rundet auf 5er-Schritte — dieselbe Rundung wie im Detail und
-   in der Patienten-App. Exakt gerundet stünde in der Liste 99 % und im
-   Detail 100 % für denselben Menschen, und die Genauigkeit gibt die
-   Kalibrierung ohnehin nicht her. */
+/* Die Liste zeigt die Stufe, weil der interne Index keine klinisch
+   validierte Wahrscheinlichkeit ist. */
 function patientRow(p){
   const r = p.lastRisk;
-  const lvl = r?.level || "nodata";
+  const lvl = p.condition === "ra" ? (r?.level || "nodata") : "unsupported";
   const cond = CONDITIONS.find(c => c.id === p.condition)?.n || p.conditionName || "—";
   const drivers = (r?.drivers || []).map(id => SIGNALS[id]?.label).filter(Boolean).slice(0,2).join(", ");
   return `
@@ -278,8 +282,7 @@ function patientRow(p){
         ${r?.date ? `<span class="ago">Stand ${esc(fmtDate(r.date))}</span>` : ""}
       </span>
       <span class="val" style="color:${LEVELS[lvl]?.color || "#7C879B"}">
-        ${r?.prob != null ? probPct(r.prob) + "%" : "—"}
-        <em>${esc(LEVEL_TEXT[lvl] || "—")}</em>
+        ${esc(LEVEL_TEXT[lvl] || "—")}
       </span>
     </button>`;
 }
@@ -316,7 +319,9 @@ async function openPatient(uid){
   }
 
   const today = new Date().toISOString().slice(0,10);
-  const r = assess(days, today, assess(days, shift(today, -1)));
+  const assessed = assess(days, today, assess(days, shift(today, -1)));
+  const r = p.condition === "ra" ? assessed :
+    { ...assessed, level:"unsupported", prob:null, drivers:[] };
   const series = assessSeries(days, lastKeys(today, 30));
   const last = days[days.length - 1];
 
@@ -326,15 +331,17 @@ async function openPatient(uid){
 
   ctx.ui.openSheet(p.linkName || "Patient", `
     <div class="glass card" style="margin-bottom:16px">
-      <p class="eyebrow">Aktuelles Schubrisiko</p>
+      <p class="eyebrow">Veränderung gegenüber der Baseline</p>
       <h2 style="color:${LEVELS[r.level]?.color};margin-top:6px">
-        ${LEVEL_TEXT[r.level]}${r.prob != null ? ` · ${probPct(r.prob)} %` : ""}</h2>
+        ${LEVEL_TEXT[r.level]}</h2>
       <p class="sub">${esc(cond)}${joints.length ? ` · ${esc(joints.slice(0,3).join(", "))}` : ""}</p>
+      ${p.condition !== "ra" ? `<p class="note">Diese Erkrankung ist für die Einstufung
+        nicht geprüft. Erkrankungsspezifische Symptome werden nicht vollständig berücksichtigt.</p>` : ""}
       ${r.prob != null ? `<p class="sub" style="margin-top:6px;font-size:13.5px">
-        Aussagekraft ${Math.round(r.confidence*100)} %, Baseline aus ${r.baselineDays} Tagen.</p>` : ""}
+        Grundlage: ${r.baselineDays} Vergleichstage. Die Stufe ist nicht klinisch validiert.</p>` : ""}
     </div>
 
-    ${sparkline(series)}
+    ${p.condition === "ra" ? sparkline(series) : ""}
 
     ${r.drivers?.length ? `
       <p class="group-label">Abweichungen von der Baseline</p>
@@ -354,7 +361,7 @@ async function openPatient(uid){
         ${meds.map(m => `
           <div class="drv-item">
             <span class="tx"><b>${esc(m.n)}</b>
-              <span>${esc(m.g)}${m.tdm ? " · Spiegelbestimmung etabliert" : ""}</span></span>
+              <span>${esc(m.g)}</span></span>
           </div>`).join("")}
       </div>` : ""}
 
@@ -362,16 +369,11 @@ async function openPatient(uid){
     ${labBlock(days)}
     ${photoBlock(days)}
 
-    <div id="adv-out"></div>
-
     <div class="disclaimer">
       ${ICON.info}
       <p>Patientenangaben und Wearable-Werte, keine erhobenen Befunde. Die
          Einstufung beruht auf nicht validierten Schwellenwerten.</p>
-    </div>`, `
-    <button class="btn btn-primary" id="adv-go">Empfehlung abrufen</button>`);
-
-  $("#adv-go").onclick = () => fetchAdvice(p, r, series, days, last);
+    </div>`);
 }
 
 const shift = (key, n) => {
@@ -520,8 +522,11 @@ async function fetchAdvice(p, r, series, days, last){
   };
 
   try {
+    const token = await ctx.auth.currentUser?.getIdToken();
+    if (!token) throw new Error("Bitte erneut anmelden.");
     const res = await fetch(ADVICE_ENDPOINT, {
-      method:"POST", headers:{ "content-type":"application/json" },
+      method:"POST",
+      headers:{ "content-type":"application/json", authorization:`Bearer ${token}` },
       body: JSON.stringify(payload)
     });
     const d = await res.json();
@@ -612,6 +617,8 @@ function openDoctorSettings(){
       <p class="sub" style="margin-top:6px">Bleibt dauerhaft gleich. Patienten
         tragen ihn in ihrer App unter Einstellungen → Praxis ein.</p>
     </div>
+    <p class="hint" style="margin-bottom:16px">Änderungen an den Praxisdaten
+      erfordern eine erneute Prüfung. Bis zur Freigabe ist der Patientenzugriff gesperrt.</p>
     ${rows}`, `
     <button class="btn btn-primary" id="ds-save">Speichern</button>
     <button class="btn btn-glass btn-sm" id="ds-out">Abmelden</button>`);
@@ -620,10 +627,18 @@ function openDoctorSettings(){
     $("#ds-save").disabled = true;
     const next = { ...practice };
     for (const f of FIELDS) next[f.k] = $(`#ds-${f.k}`).value.trim();
+    if (!FIELDS.some(f => next[f.k] !== (practice?.[f.k] || ""))){
+      ctx.ui.closeSheet();
+      return;
+    }
+    next.verified = false;
+    next.verifiedAt = null;
+    next.verifiedBy = null;
     try {
       await setDoc(doc(ctx.db, "doctors", ctx.auth.currentUser.uid), next, { merge:true });
       practice = next;
-      renderDoctorHome();
+      patients = [];
+      await openDoctorHome();
       ctx.ui.closeSheet();
       ctx.ui.toast("Gespeichert.");
     } catch { $("#ds-save").disabled = false; ctx.ui.toast("Speichern fehlgeschlagen."); }

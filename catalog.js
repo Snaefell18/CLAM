@@ -20,7 +20,7 @@
    ══════════════════════════════════════════════════════════════════ */
 
 import {
-  doc, getDoc, setDoc
+  doc, getDoc, setDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 import {
@@ -59,7 +59,7 @@ export const TABLES = [
   },
   {
     id:"drugs", label:"Medikamente", shape:"list", target:DRUGS,
-    hint:"tdm steuert, ob der Praxisbericht eine Spiegelbestimmung vorschlagen darf.",
+    hint:"tdm steuert nur, ob passende Laborwerte nachgetragen werden können.",
     cols:[
       { key:"id",    label:"Kennung", type:"text", req:true },
       { key:"n",     label:"Name",    type:"text", req:true },
@@ -256,19 +256,25 @@ export async function loadCatalog(db){
     if (!snap.exists()) return { ok:true, applied:false };
     applyCatalog(snap.data());
     return { ok:true, applied:true, meta:{
+      version:snap.data().version || snap.data().updatedAt || "legacy",
       updatedAt: snap.data().updatedAt || null,
       updatedBy: snap.data().updatedBy || null
     }};
   } catch (e){
-    /* Kein harter Fehler: die App läuft auf den Vorgaben weiter. */
+    /* Die aufrufende App stoppt bei einem Fehler, statt stillschweigend
+       mit einer anderen Rechengrundlage weiterzumachen. */
     console.warn("Katalog nicht geladen, Vorgaben bleiben aktiv:", e?.message || e);
     return { ok:false, applied:false, error:String(e?.message || e) };
   }
 }
 
 export async function saveCatalog(db, email){
-  const data = { ...snapshot(), updatedAt:new Date().toISOString(), updatedBy:email || null };
-  await setDoc(CATALOG_REF(db), data);
+  const version = `${Date.now()}-${crypto.randomUUID().slice(0,8)}`;
+  const data = { ...snapshot(), version, updatedAt:new Date().toISOString(), updatedBy:email || null };
+  const batch = writeBatch(db);
+  batch.set(CATALOG_REF(db), data);
+  batch.set(doc(db, "catalogVersions", version), data);
+  await batch.commit();
   return data;
 }
 

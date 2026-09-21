@@ -1,7 +1,7 @@
 {
   "name": "CLAM",
   "short_name": "CLAM",
-  "description": "Schubrisiko bei Autoimmunerkrankungen früh erkennen und gezielt abklären lassen.",
+  "description": "Veränderungen gegenüber persönlichen Ausgangswerten dokumentieren und mit der Praxis besprechen.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

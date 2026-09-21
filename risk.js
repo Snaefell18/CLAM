@@ -424,6 +424,7 @@ export function lastKeys(key, n){
    und reißt damit die Grenze für große Schrift. Die Werte hier liegen
    bei 3,7 bis 5,1:1. */
 export const LEVELS = {
+  unsupported:{ color:"#71809A", ring:"#C7CFDD" },
   building: { color:"#71809A", ring:"#C7CFDD" },
   nodata:   { color:"#71809A", ring:"#C7CFDD" },
   low:      { color:"#0B7A4E", ring:"#7CCBAA" },

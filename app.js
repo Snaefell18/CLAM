@@ -2,15 +2,13 @@
    CLAM — Closed-Loop Autoimmune Management
    index.html + app.js  ·  Firebase Auth/Firestore  ·  Claude
 
-   Der Kreislauf, den diese App schließt:
+   Der derzeitige Ablauf:
 
      Wearable + Tages-Check + Fotos
-       → Schubrisiko gegen die persönliche Baseline
-       → gezielte Nachfragen, wenn das Risiko steigt
-       → Meldung an die Praxis
-       → dort Diagnostik (PoC-TDM, Entzündungswerte)
-       → Befund zurück in die App
-       → nächster Verlauf auf besserer Grundlage
+       → Abweichung gegen die persönliche Baseline (nur RA)
+       → gezielte Nachfragen bei erhöhter Einstufung
+       → Bericht zur eigenen Weitergabe speichern
+       → Laborwerte selbst nachtragen
 
    Die Rechenlogik steckt vollständig in risk.js, die fachlichen Listen
    in data.js. Diese Datei ist Oberfläche, Datenhaltung und Ablauf.
@@ -45,11 +43,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebas
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
-  deleteUser, reauthenticateWithCredential, reauthenticateWithPopup, EmailAuthProvider
+  deleteUser, reauthenticateWithCredential, reauthenticateWithPopup, EmailAuthProvider,
+  sendEmailVerification
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs,
-  query, orderBy, limit, addDoc
+  query, orderBy, limit, addDoc, updateDoc, deleteField, writeBatch, where, documentId
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
   assess, assessSeries, lastKeys, shiftKey, dateToKey,
@@ -69,6 +68,17 @@ import { initSeed } from "./seed.js";
 
 const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
+
+async function apiPost(endpoint, payload){
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("Bitte erneut anmelden.");
+  return fetch(endpoint, {
+    method:"POST",
+    headers:{ "content-type":"application/json", authorization:`Bearer ${token}` },
+    body:JSON.stringify(payload)
+  });
+}
+
 const db    = getFirestore(fb);
 const gprov = new GoogleAuthProvider();
 
@@ -84,7 +94,8 @@ const S = {
   obStep:0,
   draft:{},
   admin:false,    // nur für die Sichtbarkeit des Menüs, verbindlich sind die Regeln
-  doctor:false
+  doctor:false,
+  modelVersion:"defaults-v1"
 };
 
 /* Wie viele Tage rückwärts geladen werden. Baseline (28) + Lag (2) +
@@ -162,6 +173,7 @@ const LEVEL_TEXT = {
   elevated: { t:"Erhöht",   s:"Mehrere Werte weichen von deiner Baseline ab." },
   high:     { t:"Hoch",     s:"Deutliche Abweichung über mehrere Kennzahlen." },
   building: { t:"Baseline", s:"Die App lernt gerade deine Normalwerte." },
+  unsupported:{ t:"Nicht bewertet", s:"Für diese Erkrankung ist die Einstufung nicht geprüft." },
   nodata:   { t:"Keine Daten", s:"Für diesen Tag liegen noch keine Werte vor." }
 };
 
@@ -247,9 +259,12 @@ async function doAuth(fn){
 $("#li-go").onclick = () => {
   const mail = $("#li-mail").value.trim(), pass = $("#li-pass").value;
   if (!mail || !pass){ $("#li-err").textContent = "Bitte E-Mail und Passwort eingeben."; return; }
-  doAuth(() => signupMode
-    ? createUserWithEmailAndPassword(auth, mail, pass)
-    : signInWithEmailAndPassword(auth, mail, pass));
+  doAuth(async () => {
+    if (signupMode){
+      const credentials = await createUserWithEmailAndPassword(auth, mail, pass);
+      await sendEmailVerification(credentials.user);
+    } else await signInWithEmailAndPassword(auth, mail, pass);
+  });
 };
 $("#li-google").onclick = () => doAuth(() => signInWithPopup(auth, gprov));
 
@@ -266,7 +281,14 @@ onAuthStateChanged(auth, async user => {
   /* Katalog zuerst: Erkrankungen, Signale und Gewichte müssen stehen,
      bevor irgendetwas gerechnet oder gezeichnet wird. Schlägt das fehl,
      laufen die Vorgaben aus dem Code weiter. */
-  await loadCatalog(db);
+  const catalog = await loadCatalog(db);
+  if (!catalog.ok){
+    $("#li-err").textContent = "Die Berechnungsgrundlage ist nicht verfügbar. Bitte später erneut laden.";
+    screen("s-login");
+    hideBoot();
+    return;
+  }
+  S.modelVersion = catalog.meta?.version || "defaults-v1";
 
   /* ── Weiche Praxis / Patient ──
      Nicht die Auswahl auf dem Login entscheidet, sondern welches
@@ -295,6 +317,24 @@ onAuthStateChanged(auth, async user => {
 
   if (snap.exists() && snap.data().onboarded){
     S.profile = snap.data();
+    if (S.profile.ingestToken){
+      // Alte Schlüssel standen im von der Praxis lesbaren Profil. Sie sind
+      // serverseitig nicht mehr gültig und werden beim nächsten Login entfernt.
+      delete S.profile.ingestToken;
+      try {
+        const shareDoctorUid = S.profile.doctorUid || null;
+        await updateDoc(doc(db, "users", user.uid), {
+          ingestToken:deleteField(), shareDoctorUid
+        });
+        S.profile.shareDoctorUid = shareDoctorUid;
+      }
+      catch (error){ console.warn("Legacy token removal pending", error); }
+    } else if (S.profile.doctorUid && S.profile.shareDoctorUid !== S.profile.doctorUid){
+      await updateDoc(doc(db, "users", user.uid), {
+        shareDoctorUid:S.profile.doctorUid
+      });
+      S.profile.shareDoctorUid = S.profile.doctorUid;
+    }
     await loadWindow();
     await openDay(todayKey());
     screen("s-home");
@@ -346,7 +386,8 @@ async function saveProfile(){
    klein, das ist günstiger als 60 Einzelabfragen. */
 async function loadWindow(){
   const from = shiftKey(todayKey(), -WINDOW_DAYS);
-  const snap = await getDocs(collection(db, "users", S.uid, "days"));
+  const snap = await getDocs(query(collection(db, "users", S.uid, "days"),
+    where(documentId(), ">=", from)));
   const out = [];
   snap.forEach(d => { if (d.id >= from) out.push({ key:d.id, ...d.data() }); });
   S.days = out.sort((a,b) => a.key.localeCompare(b.key));
@@ -366,6 +407,8 @@ function recompute(){
   const prevKey = shiftKey(S.dayKey, -1);
   const prev = assess(S.days, prevKey);
   S.risk = assess(S.days, S.dayKey, prev);
+  if (S.profile?.condition !== "ra")
+    S.risk = { ...S.risk, level:"unsupported", prob:null, drivers:[] };
 }
 
 /* Schreibt den angezeigten Tag zurück — inklusive einer Momentaufnahme
@@ -374,8 +417,13 @@ function recompute(){
    Dienstag als "erhöht" angezeigt wurde, muss im Rückblick "erhöht"
    bleiben, sonst ist der Verlauf für die Praxis wertlos. */
 async function saveDay(){
+  // Der neue Tag muss Teil der Bewertungsgrundlage sein, bevor assess liest.
+  const i = S.days.findIndex(d => d.key === S.dayKey);
+  if (i >= 0) S.days[i] = S.day; else S.days.push(S.day);
+  S.days.sort((a,b) => a.key.localeCompare(b.key));
   recompute();
   S.day.risk = S.risk.prob == null ? null : {
+    modelVersion:S.modelVersion,
     level:      S.risk.level,
     prob:       Math.round(S.risk.prob * 1000) / 1000,
     raw:        Math.round(S.risk.raw  * 1000) / 1000,
@@ -385,25 +433,21 @@ async function saveDay(){
   S.day.updatedAt = new Date().toISOString();
 
   // Im Fenster halten, damit die nächste Berechnung den neuen Wert sieht
-  const i = S.days.findIndex(d => d.key === S.dayKey);
-  if (i >= 0) S.days[i] = S.day; else S.days.push(S.day);
-  S.days.sort((a,b) => a.key.localeCompare(b.key));
-
-  await setDoc(doc(db, "users", S.uid, "days", S.dayKey), S.day, { merge:true });
-
-  /* Ist eine Praxis verknüpft, wandert eine Kurzfassung ins Nutzer-
-     dokument. Damit kostet die Patientenliste dort eine einzige Abfrage
-     statt einen ganzen Verlauf je Patient. Ohne Verknüpfung wird nichts
-     geschrieben — die Zusammenfassung existiert nur, weil jemand sie
-     sehen darf. */
-  if (S.profile?.doctorUid && viewingToday()) await pushRiskSummary();
+  const batch = writeBatch(db);
+  batch.set(doc(db, "users", S.uid, "days", S.dayKey), S.day, { merge:true });
+  /* Tageswert und Praxisübersicht gehören zusammen. Ein Batch verhindert,
+     dass die Praxisliste nach einem Teilausfall einen alten Wert anzeigt. */
+  if (S.profile?.doctorUid && viewingToday())
+    batch.set(doc(db, "users", S.uid), { lastRisk:riskSummary() }, { merge:true });
+  await batch.commit();
 }
 
-async function pushRiskSummary(){
-  /* Die Stufe wird IMMER mitgeschrieben, auch ohne Wahrscheinlichkeit.
+function riskSummary(){
+  /* Die Stufe wird IMMER mitgeschrieben, auch ohne interne Kennzahl.
      Für die Praxis ist "Baseline im Aufbau" etwas anderes als "trägt
      nichts ein" — ohne die Stufe sähen beide gleich aus. */
-  const lastRisk = {
+  return {
+    modelVersion:S.modelVersion,
     level:      S.risk?.level || "nodata",
     prob:       S.risk?.prob == null ? null : Math.round(S.risk.prob * 1000) / 1000,
     confidence: S.risk?.confidence == null ? null : Math.round(S.risk.confidence * 100) / 100,
@@ -411,16 +455,29 @@ async function pushRiskSummary(){
     date:       S.dayKey,
     at:         new Date().toISOString()
   };
-  try { await setDoc(doc(db, "users", S.uid), { lastRisk }, { merge:true }); }
-  catch { /* nicht kritisch: die Praxis sieht dann den vorherigen Stand */ }
+}
+
+async function pushRiskSummary(){
+  await setDoc(doc(db, "users", S.uid), { lastRisk:riskSummary() }, { merge:true });
 }
 
 /* Werte in den angezeigten Tag schreiben und speichern. */
 async function patchDay(patch){
+  const previous = structuredClone(S.day);
+  const existed = S.days.some(d => d.key === S.dayKey);
   Object.assign(S.day, patch);
   try { await saveDay(); }
-  catch { toast("Offline gespeichert — wird nachgereicht."); }
+  catch {
+    S.day = previous;
+    S.days = S.days.filter(d => d.key !== S.dayKey);
+    if (existed) S.days.push(previous);
+    S.days.sort((a,b) => a.key.localeCompare(b.key));
+    recompute();
+    toast("Speichern fehlgeschlagen. Bitte Verbindung prüfen und erneut versuchen.");
+    return false;
+  }
   renderHome();
+  return true;
 }
 
 /* ─────────────────  7. ONBOARDING  ─────────────────
@@ -567,20 +624,20 @@ const OB = [
         <span class="check">${ICON.check}</span>
         <span class="tx">Ich willige ein, dass CLAM meine Gesundheitsdaten
           — Beschwerden, Wearable-Werte, Fotos und Laborwerte — verarbeitet,
-          um daraus ein persönliches Schubrisiko zu berechnen (Art. 9 Abs. 2
+          um Veränderungen gegenüber meinen persönlichen Ausgangswerten zu erkennen (Art. 9 Abs. 2
           lit. a DSGVO). Ich kann die Einwilligung jederzeit widerrufen.</span>
       </button>
       <button class="consent${S.draft.consentShare ? " sel" : ""}" id="c-2">
         <span class="check">${ICON.check}</span>
         <span class="tx">Ich bin damit einverstanden, dass Fotos und Kennzahlen
-          zur Auswertung an die Claude-API von Anthropic übermittelt werden.</span>
+          zur Auswertung an die Claude-API von Anthropic übermittelt werden
+          (optional; jederzeit in den Einstellungen änderbar).</span>
       </button>
       <div class="disclaimer">
         ${ICON.info}
-        <p>CLAM ist kein Medizinprodukt und stellt keine Diagnose. Die App
-           erkennt Abweichungen von deinen Normalwerten und hilft dir, den
-           richtigen Zeitpunkt für eine Abklärung zu finden. Sie ersetzt keinen
-           Arztbesuch. Bei akuten Beschwerden wende dich direkt an deine Praxis.</p>
+        <p>CLAM befindet sich in Entwicklung. Die Einstufung ist nicht klinisch
+           validiert und stellt keine Diagnose. Bei akuten Beschwerden wende dich
+           direkt an deine Praxis oder an medizinische Notfallhilfe.</p>
       </div>
       <p class="hint" style="margin-top:14px">
         <a href="#" id="ob-legal-p">Datenschutz</a> ·
@@ -591,7 +648,7 @@ const OB = [
       $("#ob-legal-p").onclick = e => { e.preventDefault(); openLegal("privacy"); };
       $("#ob-legal-t").onclick = e => { e.preventDefault(); openLegal("terms"); };
     },
-    valid: () => S.draft.consent && S.draft.consentShare
+    valid: () => S.draft.consent
   }
 ];
 
@@ -632,7 +689,8 @@ $("#ob-next").onclick = async () => {
     createdAt:new Date().toISOString(),
     // Zeitpunkt der Einwilligung festhalten — bei Gesundheitsdaten muss
     // nachweisbar sein, wann und worin eingewilligt wurde
-    consentAt:new Date().toISOString()
+    consentAt:new Date().toISOString(),
+    aiConsentAt:S.draft.consentShare ? new Date().toISOString() : null
   };
   delete S.profile.jointsTouched;
   try {
@@ -668,23 +726,25 @@ function renderHome(){
   $("#h-date").innerHTML = `${esc(dayLabel(S.dayKey))} ${ICON.down}`;
   $("#h-date").classList.toggle("past", !viewingToday());
 
-  /* Ring: der Bogen füllt sich proportional zur Wahrscheinlichkeit.
+  /* Ring: der Bogen füllt sich proportional zur internen Kennzahl.
      Ohne Wert bleibt nur die Spur stehen. */
   const p = r?.prob ?? 0;
   const off = RING_C * (1 - p);
-  const pct = probPct(r?.prob);
 
   const txt = LEVEL_TEXT[lvl];
   const mid = lvl === "building"
     ? `<span class="cap">Baseline</span>
        <span class="lvl" style="font-size:26px;color:${conf.color}">${r.baselineDays}/${GATES.minBaselineDays}</span>
        <span class="pct">Tage erfasst</span>`
+    : lvl === "unsupported"
+    ? `<span class="cap">Veränderung</span>
+       <span class="lvl" style="font-size:23px;color:${conf.color}">Nicht bewertet</span>`
     : lvl === "nodata"
-    ? `<span class="cap">Schubrisiko</span>
+    ? `<span class="cap">Veränderung</span>
        <span class="lvl" style="font-size:24px;color:${conf.color}">Keine Daten</span>`
-    : `<span class="cap">Schubrisiko</span>
+    : `<span class="cap">Veränderung</span>
        <span class="lvl" style="color:${conf.color}">${txt.t}</span>
-       <span class="pct">${pct} %</span>`;
+       <span class="pct">gegenüber deiner Baseline</span>`;
 
   let html = `
     <div class="ring-wrap">
@@ -701,19 +761,24 @@ function renderHome(){
     </div>
     <p class="hero-note">${heroNote(r)}</p>`;
 
-  /* Konfidenz nur zeigen, wenn es überhaupt eine Bewertung gibt. */
+
   if (r && r.prob != null){
-    html += `
-      <div class="conf">
-        <small>Aussagekraft</small>
-        <span class="bar"><span style="width:${Math.round(r.confidence * 100)}%"></span></span>
-        <small>${Math.round(r.confidence * 100)}%</small>
-      </div>`;
+    html += `<p class="hint" style="text-align:center">Grundlage: ${r.baselineDays} Vergleichstage.</p>`;
   }
 
   /* Handlungsaufforderung. Der eigentliche Zweck der App: aus einem
      Messwert eine Handlung machen. */
   html += ctaHTML(r);
+  if (S.day?.followUp?.urgent){
+    html += `<div class="flag"><span class="dot"></span><span class="tx">
+      <b>Bitte sofort ärztlich abklären</b>${esc(S.day.followUp.urgent)}</span></div>`;
+  }
+  if (S.profile?.condition !== "ra"){
+    html += `<div class="disclaimer">${ICON.info}<p>Für diese Erkrankung ist die
+      Einstufung nicht geprüft. Besonders neurologische, Darm- und Hautsymptome
+      fließen nicht vollständig ein. Verlasse dich bei einer Verschlechterung
+      nicht auf „Niedrig“, sondern kontaktiere deine behandelnde Praxis.</p></div>`;
+  }
 
   /* Signalkarten. Nur, was das gewählte Wearable liefern kann plus die
      Patienteneingaben — sonst stünden dauerhaft leere Karten da. */
@@ -783,33 +848,32 @@ function heroNote(r){
 /* Die Handlungsaufforderung hängt davon ab, wie weit der Loop schon
    gelaufen ist: erst nachfragen, dann melden. */
 function ctaHTML(r){
-  if (!r || r.level === "low" || r.level === "building" || r.level === "nodata") return "";
+  if (!r || r.prob == null || r.level === "low") return "";
 
   const asked = !!S.day?.followUp;
-  const sent  = !!S.day?.reported;
+  const saved = S.day?.reportSaved || S.day?.reported;
 
-  if (sent) return `
+  if (saved) return `
     <div class="flag" style="margin-top:20px">
-      <span class="dot" style="background:var(--good)"></span>
-      <span class="tx"><b>Praxis informiert</b>
-        Am ${esc(S.day.reported.at?.slice(0,10) || "")} gesendet. Der Bericht liegt im Verlauf.</span>
+      <span class="dot"></span>
+      <span class="tx"><b>Bericht gespeichert</b>
+        Bitte gib ihn selbst an deine Praxis weiter. CLAM hat ihn nicht versendet.</span>
     </div>`;
 
   if (!asked) return `
     <button class="cta ${r.level}" data-act="followup">
       <span class="ic">${ICON.alert}</span>
       <span class="tx"><b>Ein paar gezielte Fragen</b>
-        <span>Drei Fragen zu deinen Symptomen — danach weiß CLAM, ob eine
-              Meldung an die Praxis sinnvoll ist.</span></span>
+        <span>Einige Fragen zu deinen Symptomen helfen dir, die Beobachtungen
+              für ein Gespräch mit deiner Praxis zu dokumentieren.</span></span>
       ${ICON.chev}
     </button>`;
 
   return `
     <button class="cta ${r.level}" data-act="report">
       <span class="ic">${ICON.send}</span>
-      <span class="tx"><b>Praxis informieren</b>
-        <span>Bericht mit deinen Werten erstellen und an
-              ${esc(S.profile?.practice?.name || "deine Praxis")} senden.</span></span>
+      <span class="tx"><b>Bericht für die Praxis erstellen</b>
+        <span>Du kannst ihn speichern und anschließend selbst weitergeben.</span></span>
       ${ICON.chev}
     </button>`;
 }
@@ -971,12 +1035,15 @@ function openCheckin(){
     const patch = { checkedAt: new Date().toISOString() };
     for (const c of list) if (Number.isFinite(d[c.id])) patch[c.id] = d[c.id];
     if (d.medTaken) { patch.medTaken = d.medTaken; patch.missedDoses = d.missedDoses || 0; }
-    await patchDay(patch);
+    if (!await patchDay(patch)){
+      $("#ck-save").disabled = false;
+      return;
+    }
     closeSheet();
     toast("Tages-Check gespeichert.");
     // Ist das Risiko dadurch gestiegen, direkt weiterführen — der Loop
     // soll nicht daran scheitern, dass der Nutzer die Kachel übersieht.
-    if (S.risk.level !== "low" && S.risk.level !== "building" && !S.day.followUp)
+    if (S.risk.prob != null && S.risk.level !== "low" && !S.day.followUp)
       setTimeout(openFollowUp, 900);
   };
 }
@@ -1045,7 +1112,10 @@ function openVitals(){
     }
     if (!Object.keys(patch).length){ closeSheet(); return; }
     patch.vitalsSource = "manual";
-    await patchDay(patch);
+    if (!await patchDay(patch)){
+      $("#vt-save").disabled = false;
+      return;
+    }
     closeSheet();
     toast("Vitaldaten gespeichert.");
   };
@@ -1060,6 +1130,11 @@ function openVitals(){
 let photoData = null, photoMime = "image/jpeg";
 
 function openPhoto(){
+  if (!S.profile.consentShare){
+    openSheet("Foto dokumentieren", `<p class="note">Die Bildauswertung benötigt deine
+      Einwilligung zur KI-Auswertung. Du kannst sie in den Einstellungen aktivieren.</p>`);
+    return;
+  }
   photoData = null;
   const cond = CONDITIONS.find(c => c.id === S.profile.condition);
   const regions = (S.profile.joints || []).map(id => JOINTS.find(j => j.id === id)).filter(Boolean);
@@ -1203,18 +1278,14 @@ async function analyzePhoto(){
 
   const prev = lastPhoto();
   try {
-    const res = await fetch(API.photo, {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify({
+    const res = await apiPost(API.photo, {
         image: photoData, mime: photoMime,
         region: regionName,
         condition: CONDITIONS.find(c => c.id === S.profile.condition)?.n,
         // Der Vorbefund gibt Claude einen Vergleichspunkt. Ohne ihn wäre
         // jede Auswertung ein Einzelbild ohne Verlauf.
         previous: prev ? { date: prev.key, findings: prev.findings || null } : null
-      })
-    });
+      });
     const d = await res.json();
     if (!res.ok) throw new Error(d.message || "Auswertung fehlgeschlagen");
     showPhotoResult(d, region, regionName);
@@ -1267,7 +1338,12 @@ function showPhotoResult(d, region, regionName){
         findings: d.findings || [], change: d.change || null,
         note: d.note || "", confidence: d.confidence || null
       }];
-      await patchDay({ photos });
+      if (!await patchDay({ photos })){
+        try { await deleteDoc(doc(db, "users", S.uid, "photos", id)); }
+        catch { /* beim nächsten Kontolöschen bleibt das Bild auffindbar */ }
+        $("#ph-save").disabled = false;
+        return;
+      }
       closeSheet();
       toast("Foto gespeichert.");
     } catch(e){
@@ -1299,7 +1375,7 @@ function openRiskDetail(){
     <div class="glass card" style="margin-bottom:18px">
       <p class="eyebrow">Bewertung ${esc(dayLabel(S.dayKey))}</p>
       <h2 style="color:${LEVELS[r.level].color};margin-top:6px">
-        ${LEVEL_TEXT[r.level].t} · ${probPct(r.prob)}%</h2>
+        ${LEVEL_TEXT[r.level].t}</h2>
       <p class="sub">${LEVEL_TEXT[r.level].s}</p>
     </div>
 
@@ -1342,9 +1418,7 @@ function openRiskDetail(){
         absolut relevant ist — ein halber Schlag mehr Ruhepuls bleibt außen vor,
         auch wenn deine Werte sonst extrem gleichmäßig sind.</p>
       <p class="sub" style="font-size:14px;margin-top:10px">
-        Diese Bewertung stützt sich auf ${Object.keys(r.signals).length} Kennzahlen
-        aus ${r.baselineDays} Baseline-Tagen. Aussagekraft:
-        ${Math.round(r.confidence * 100)} %.</p>
+        Diese Bewertung nutzt ${Object.keys(r.signals).length} Kennzahlen und ${r.baselineDays} Vergleichstage. Die Stufen sind nicht klinisch validiert.</p>
     </div>
 
     <div class="disclaimer">
@@ -1384,11 +1458,8 @@ async function openFollowUp(){
 
   let data;
   try {
-    const res = await fetch(API.assess, {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify(assessPayload())
-    });
+    if (!S.profile.consentShare) throw new Error("ai_consent_disabled");
+    const res = await apiPost(API.assess, assessPayload());
     data = await res.json();
     if (!res.ok) throw new Error(data.message || "Anfrage fehlgeschlagen");
   } catch(e){
@@ -1401,6 +1472,8 @@ async function openFollowUp(){
   const body = `
     <p class="sub" style="margin-bottom:18px">${esc(data.intro ||
       "Ein paar Fragen, damit die Einschätzung genauer wird.")}</p>
+    ${data.urgent ? `<div class="flag"><span class="dot"></span><span class="tx">
+      <b>Bitte sofort ärztlich abklären</b>${esc(data.urgent)}</span></div>` : ""}
     ${(data.questions || []).map((q, i) => `
       <div class="qitem" data-i="${i}">
         <b>${esc(q.text)}</b>
@@ -1442,7 +1515,10 @@ async function openFollowUp(){
       note: $("#fu-note").value.trim() || null,
       urgent: data.urgent || null
     };
-    await patchDay({ followUp });
+    if (!await patchDay({ followUp })){
+      $("#fu-save").disabled = false;
+      return;
+    }
     closeSheet();
 
     const hits = followUp.answers.filter(a => a.hit).length;
@@ -1517,38 +1593,24 @@ async function openReport(){
 
   let data;
   try {
-    const res = await fetch(API.report, {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify(reportPayload())
-    });
+    if (!S.profile.consentShare) throw new Error("ai_consent_disabled");
+    const res = await apiPost(API.report, reportPayload());
     data = await res.json();
     if (!res.ok) throw new Error(data.message || "Bericht fehlgeschlagen");
   } catch(e){
-    data = { summary: fallbackReport(), suggested:[] };
+    data = { summary: fallbackReport() };
   }
 
   const practice = S.profile.practice || {};
   const body = `
     <div class="flag">
       <span class="dot"></span>
-      <span class="tx"><b>Nichts wird ohne dich versendet</b>
-        Lies den Bericht durch. Erst dein Tippen auf „Senden" schickt ihn ab.</span>
+      <span class="tx"><b>Bitte selbst weitergeben</b>
+        CLAM speichert den Bericht. Du kannst den Text kopieren und an deine Praxis übermitteln.</span>
     </div>
 
     <p class="group-label">Bericht</p>
     <div class="report">${esc(data.summary || "")}</div>
-
-    ${data.suggested?.length ? `
-      <p class="group-label">Vorgeschlagene Diagnostik</p>
-      <div class="glass drv">
-        ${data.suggested.map(s => `
-          <div class="drv-item">
-            <span class="tx"><b>${esc(s.test)}</b><span>${esc(s.why)}</span></span>
-          </div>`).join("")}
-      </div>
-      <p class="hint">Vorschläge zur Orientierung. Was tatsächlich sinnvoll ist,
-         entscheidet die Praxis.</p>` : ""}
 
     <p class="group-label">Empfängerin</p>
     <div class="glass card">
@@ -1563,7 +1625,7 @@ async function openReport(){
 
   openSheet("Meldung an die Praxis", body, `
     <button class="btn btn-primary" id="rp-send">
-      ${practice.mail ? "An Praxis senden" : "Bericht speichern"}</button>
+      Bericht speichern</button>
     <button class="btn btn-glass btn-sm" id="rp-copy">Text kopieren</button>`);
 
   $("#rp-copy").onclick = async () => {
@@ -1578,21 +1640,22 @@ async function openReport(){
         at: new Date().toISOString(),
         dayKey: S.dayKey,
         level: S.risk.level,
-        prob: probPct(S.risk.prob),
         summary: data.summary,
-        suggested: data.suggested || [],
         practice: { name: practice.name || null, mail: practice.mail || null },
-        // "queued" heißt: erzeugt und für den Versand vorgemerkt. Der
-        // tatsächliche Mailversand läuft serverseitig (siehe README).
-        status: practice.mail ? "queued" : "stored"
+        status: "stored"
       };
-      await addDoc(collection(db, "users", S.uid, "reports"), rec);
-      await patchDay({ reported: { at: rec.at, level: rec.level, prob: rec.prob } });
+      const marker = { at: rec.at, level: rec.level };
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, "users", S.uid, "reports")), rec);
+      batch.set(doc(db, "users", S.uid, "days", S.dayKey), { reportSaved:marker }, { merge:true });
+      await batch.commit();
+      S.day.reportSaved = marker;
+      renderHome();
       closeSheet();
-      toast(practice.mail ? "Meldung an die Praxis abgeschickt." : "Bericht gespeichert.");
+      toast("Bericht gespeichert. Bitte selbst an die Praxis weitergeben.");
     } catch {
       $("#rp-send").disabled = false;
-      toast("Senden fehlgeschlagen. Prüfe deine Verbindung.");
+      toast("Speichern fehlgeschlagen. Bitte erneut versuchen.");
     }
   };
 }
@@ -1630,7 +1693,7 @@ function reportPayload(){
     })),
     drugs: (S.profile.drugs || []).map(id => {
       const d = DRUGS.find(x => x.id === id);
-      return d ? { name:d.n, tdm:d.tdm, ada:d.ada } : null;
+      return d ? { name:d.n } : null;
     }).filter(Boolean),
     daysToNextDose: daysToNextDose(),
     labs: recentLabs(),
@@ -1660,8 +1723,8 @@ function fallbackReport(){
   L.push(`Datum: ${longDate(S.dayKey)}`);
   L.push(`Erkrankung: ${CONDITIONS.find(c => c.id === S.profile.condition)?.n || "—"}`);
   L.push("");
-  L.push(`Eingestuftes Schubrisiko: ${LEVEL_TEXT[r.level].t} (${probPct(r.prob)} %)`);
-  L.push(`Grundlage: ${r.baselineDays} Baseline-Tage, Aussagekraft ${Math.round(r.confidence*100)} %`);
+  L.push(`Auffälligkeit gegenüber der Baseline: ${LEVEL_TEXT[r.level].t}`);
+  L.push(`Grundlage: ${r.baselineDays} Vergleichstage; die Stufe ist nicht klinisch validiert.`);
   L.push("");
   L.push("Abweichungen gegenüber der persönlichen Baseline:");
   for (const d of r.drivers)
@@ -1685,7 +1748,7 @@ function fallbackReport(){
   L.push("");
   L.push("Diese Meldung ist ein Hinweis auf eine Veränderung gegenüber den");
   L.push("individuellen Ausgangswerten, keine Diagnose. Erzeugt von CLAM,");
-  L.push("kein Medizinprodukt.");
+  L.push("Die Medizinprodukte-Einordnung ist noch nicht abgeschlossen.");
   return L.join("\n");
 }
 
@@ -1707,6 +1770,8 @@ function historyPoints(n){
   const computed = assessSeries(S.days, keys);
   return keys.map((k, i) => {
     const d = S.days.find(x => x.key === k);
+    if (S.profile?.condition !== "ra")
+      return { key:k, prob:null, level:"unsupported", drivers:[], day:d };
     if (d?.risk?.prob != null)
       return { key:k, prob:d.risk.prob, level:d.risk.level,
                drivers:d.risk.drivers || [], day:d };
@@ -1747,10 +1812,13 @@ function bindHistItems(){
 }
 
 function riskHistory(pts, withData){
+  if (S.profile?.condition !== "ra")
+    return `<p class="empty">Für diese Erkrankung gibt es noch keine geprüfte
+      Verlaufseinstufung. Deine Einträge und Laborwerte bleiben erhalten.</p>`;
   if (withData.length < 2) return `<p class="empty">Noch zu wenig Verlauf.
     Sobald mehrere Tage bewertet sind, siehst du hier die Kurve.</p>`;
 
-  /* Kurve. x über 30 Tage, y = Wahrscheinlichkeit. Lücken bleiben
+  /* Kurve. x über 30 Tage, y = interne Kennzahl. Lücken bleiben
      Lücken — eine durchgezogene Linie über nicht erfasste Tage würde
      Daten vortäuschen, die es nicht gibt. */
   const W = 320, H = 150, pad = 6;
@@ -1792,7 +1860,7 @@ function riskHistory(pts, withData){
         <span class="dot" style="background:${LEVELS[p.level]?.color}"></span>
         <span class="tx"><b>${esc(dayLabel(p.key))}</b>
           <span>${esc(driverSummary(p.drivers))}</span></span>
-        <span class="val" style="color:${LEVELS[p.level]?.color}">${Math.round(p.prob*100)}%</span>
+        <span class="val" style="color:${LEVELS[p.level]?.color}">${LEVEL_TEXT[p.level]?.t || "—"}</span>
       </button>`).join("")}`;
 }
 
@@ -1846,8 +1914,8 @@ async function reportHistory(){
     <div class="hist-item">
       <span class="dot" style="background:${LEVELS[r.level]?.color || "#8A94A6"}"></span>
       <span class="tx"><b>${esc(longDate(r.dayKey))}</b>
-        <span>${esc(r.practice?.name || "gespeichert")} · ${r.status === "queued" ? "gesendet" : "nur gespeichert"}</span></span>
-      <span class="val">${r.prob}%</span>
+        <span>${esc(r.practice?.name || "Praxisbericht")} · nur gespeichert, bitte selbst weitergeben</span></span>
+      <span class="val">${LEVEL_TEXT[r.level]?.t || "—"}</span>
     </div>`).join("");
 }
 
@@ -1865,7 +1933,7 @@ function openDayPicker(){
         <span class="tx"><b>${esc(dayLabel(p.key))}</b>
           <span>${has ? esc(driverSummary(p.drivers)) : "keine Einträge"}</span></span>
         ${p.prob != null
-          ? `<span class="val" style="color:${LEVELS[p.level].color}">${Math.round(p.prob*100)}%</span>`
+          ? `<span class="val" style="color:${LEVELS[p.level].color}">${LEVEL_TEXT[p.level]?.t || "—"}</span>`
           : ""}
       </button>`;
   }).join("");
@@ -1919,13 +1987,22 @@ function openLabs(){
     /* Laborwerte gehören an den Abnahmetag, nicht an heute. */
     const key = $("#lb-date").value || S.dayKey;
     if (key === S.dayKey){
-      await patchDay({ labs });
+      if (!await patchDay({ labs })){
+        $("#lb-save").disabled = false;
+        return;
+      }
     } else {
       const target = S.days.find(x => x.key === key) || { key };
-      target.labs = { ...(target.labs || {}), ...labs };
-      if (!S.days.includes(target)) S.days.push(target);
+      const next = { ...target, labs:{ ...(target.labs || {}), ...labs } };
+      try { await setDoc(doc(db, "users", S.uid, "days", key), next, { merge:true }); }
+      catch {
+        $("#lb-save").disabled = false;
+        toast("Speichern fehlgeschlagen. Bitte erneut versuchen.");
+        return;
+      }
+      S.days = S.days.filter(x => x.key !== key);
+      S.days.push(next);
       S.days.sort((a,b) => a.key.localeCompare(b.key));
-      await setDoc(doc(db, "users", S.uid, "days", key), target, { merge:true });
     }
     closeSheet();
     toast("Laborwerte gespeichert.");
@@ -2008,6 +2085,15 @@ function openSettings(){
 
     <div class="settings-grp">
       <p class="eyebrow">Konto</p>
+      <button class="set-row" data-act="ai-consent">
+        <span class="tx"><b>KI-Auswertung</b>
+          <span>${S.profile.consentShare ? "Aktiv – Gesundheitsdaten werden für Auswertungen übermittelt" :
+            "Deaktiviert – nur lokale Auswertung und Berichte ohne KI"}</span></span>${ICON.chev}
+      </button>
+      ${!auth.currentUser?.emailVerified ? `<button class="set-row" data-act="verify">
+        <span class="tx"><b>E-Mail bestätigen</b>
+          <span>Für geschützte Verwaltungsfunktionen erforderlich</span></span>${ICON.chev}
+      </button>` : ""}
       <button class="set-row" data-act="export">
         <span class="tx"><b>Daten exportieren</b><span>Alles als JSON-Datei</span></span>
         ${ICON.chev}
@@ -2033,7 +2119,7 @@ function openSettings(){
     </div>
 
     <p class="hint" style="text-align:center;margin-top:8px">
-      CLAM · kein Medizinprodukt · keine Diagnose</p>`;
+      CLAM · Entwicklungsstand · keine Diagnose</p>`;
 
   openSheet("Einstellungen", body);
 
@@ -2045,6 +2131,23 @@ function openSettings(){
     if (a === "labs")     return openLabs();
     if (a === "ingest")   return openIngest();
     if (a === "export")   return exportData();
+    if (a === "verify")   return sendEmailVerification(auth.currentUser)
+      .then(() => toast("Bestätigungslink per E-Mail versendet."))
+      .catch(() => toast("Link konnte nicht versendet werden."));
+    if (a === "ai-consent"){
+      const oldConsent = S.profile.consentShare;
+      const oldConsentAt = S.profile.aiConsentAt;
+      S.profile.consentShare = !S.profile.consentShare;
+      S.profile.aiConsentAt = S.profile.consentShare ? new Date().toISOString() : null;
+      return saveProfile().then(() => {
+        toast(S.profile.consentShare ? "KI-Auswertung aktiviert." : "KI-Auswertung deaktiviert.");
+        openSettings();
+      }).catch(() => {
+        S.profile.consentShare = oldConsent;
+        S.profile.aiConsentAt = oldConsentAt;
+        toast("Änderung konnte nicht gespeichert werden.");
+      });
+    }
     if (a === "logout")   return signOut(auth).then(closeSheet);
     if (a === "delete")   return openDelete();
     return openEdit(a);
@@ -2196,6 +2299,7 @@ function openLink(){
     if (!r.ok){
       $("#lk-out").innerHTML = `<p class="note" style="color:var(--bad)">${
         r.reason === "unknown" ? "Diesen Code gibt es nicht. Bitte in der Praxis nachfragen."
+        : r.reason === "unverified" ? "Diese Praxis wurde noch nicht geprüft und kann noch nicht verknüpft werden."
         : r.reason === "offline" ? "Keine Verbindung. Bitte später erneut versuchen."
         : "Das Muster stimmt nicht — erwartet werden zwei Buchstaben und vier Ziffern."}</p>`;
       $("#lk-check").disabled = false;
@@ -2237,6 +2341,7 @@ function confirmLink(r){
     try {
       Object.assign(S.profile, {
         doctorUid:  r.uid,
+        shareDoctorUid:r.uid,
         doctorCode: r.code,
         doctorName: r.practice.name || null,
         linkName:   name,
@@ -2276,12 +2381,12 @@ function openSheetLinked(){
     $("#lk-off").disabled = true;
     try {
       Object.assign(S.profile, {
-        doctorUid:null, doctorCode:null, doctorName:null, linkedAt:null
+        doctorUid:null, shareDoctorUid:null, doctorCode:null, doctorName:null, linkedAt:null
       });
       /* lastRisk mit weg: die Zusammenfassung existierte nur, damit die
          Praxis sie sieht. Ohne Verknüpfung hat sie dort nichts verloren. */
       await setDoc(doc(db, "users", S.uid), {
-        doctorUid:null, doctorCode:null, doctorName:null, linkedAt:null, lastRisk:null
+        doctorUid:null, shareDoctorUid:null, doctorCode:null, doctorName:null, linkedAt:null, lastRisk:null
       }, { merge:true });
       closeSheet();
       toast("Verknüpfung gelöst.");
@@ -2295,8 +2400,17 @@ function openSheetLinked(){
 /* Anleitung für die automatische Übernahme. Ein PWA kommt nicht an
    HealthKit heran — der Weg führt über einen Kurzbefehl, der die Werte
    morgens an den Ingest-Endpunkt schickt. */
-function openIngest(){
-  const token = S.profile.ingestToken;
+async function tokenHash(token){
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,"0")).join("");
+}
+
+async function openIngest(){
+  let token;
+  try {
+    const snap = await getDoc(doc(db, "users", S.uid, "private", "ingest"));
+    token = snap.data()?.token || null;
+  } catch { return toast("Schlüssel konnte nicht geladen werden."); }
   const origin = location.origin;
 
   openSheet("Automatische Übernahme", `
@@ -2310,7 +2424,8 @@ function openIngest(){
       ${token
         ? `<p class="sub" style="font-size:13px;word-break:break-all;
              font-family:ui-monospace,monospace">${esc(token)}</p>
-           <button class="btn btn-glass btn-sm" id="ig-copy" style="margin-top:12px">Schlüssel kopieren</button>`
+           <button class="btn btn-glass btn-sm" id="ig-copy" style="margin-top:12px">Schlüssel kopieren</button>
+           <button class="btn btn-glass btn-sm" id="ig-new" style="margin-top:12px">Schlüssel erneuern</button>`
         : `<p class="sub">Noch kein Schlüssel erzeugt.</p>
            <button class="btn btn-primary btn-sm" id="ig-new" style="margin-top:12px">Schlüssel erzeugen</button>`}
       <p class="hint">Der Schlüssel ist wie ein Passwort — gib ihn nicht weiter.
@@ -2346,10 +2461,20 @@ function openIngest(){
   const nb = $("#ig-new");
   if (nb) nb.onclick = async () => {
     nb.disabled = true;
-    S.profile.ingestToken = crypto.randomUUID().replace(/-/g, "");
-    await saveProfile();
-    openIngest();
-    toast("Schlüssel erzeugt.");
+    try {
+      const next = crypto.randomUUID().replace(/-/g, "");
+      const hash = await tokenHash(next);
+      const batch = writeBatch(db);
+      batch.set(doc(db, "ingestTokens", hash), { uid:S.uid, createdAt:new Date().toISOString() });
+      batch.set(doc(db, "users", S.uid, "private", "ingest"), { token:next, hash });
+      if (token) batch.delete(doc(db, "ingestTokens", await tokenHash(token)));
+      await batch.commit();
+      await openIngest();
+      toast(token ? "Schlüssel erneuert. Kurzbefehl bitte anpassen." : "Schlüssel erzeugt.");
+    } catch {
+      nb.disabled = false;
+      toast("Schlüssel konnte nicht gespeichert werden.");
+    }
   };
   const cb = $("#ig-copy");
   if (cb) cb.onclick = async () => {
@@ -2367,6 +2492,7 @@ function openLegal(which){
 async function exportData(){
   toast("Export wird vorbereitet …");
   try {
+    const tokenSnap = await getDoc(doc(db, "users", S.uid, "private", "ingest"));
     const snap = await getDocs(collection(db, "users", S.uid, "days"));
     const days = [];
     snap.forEach(d => days.push({ key:d.id, ...d.data() }));
@@ -2383,7 +2509,8 @@ async function exportData(){
 
     const blob = new Blob([JSON.stringify({
       exportedAt: new Date().toISOString(),
-      profile: S.profile, days, reports, photos
+      profile: S.profile, days, reports, photos,
+      importKey:tokenSnap.data()?.token || null
     }, null, 2)], { type:"application/json" });
 
     const a = document.createElement("a");
@@ -2421,6 +2548,12 @@ function openDelete(){
         const snap = await getDocs(collection(db, "users", S.uid, sub));
         await Promise.all(snap.docs.map(d =>
           deleteDoc(doc(db, "users", S.uid, sub, d.id))));
+      }
+      const privateSnap = await getDoc(doc(db, "users", S.uid, "private", "ingest"));
+      if (privateSnap.exists()){
+        if (privateSnap.data().hash)
+          await deleteDoc(doc(db, "ingestTokens", privateSnap.data().hash));
+        await deleteDoc(privateSnap.ref);
       }
       await deleteDoc(doc(db, "users", S.uid));
       await deleteUser(auth.currentUser);

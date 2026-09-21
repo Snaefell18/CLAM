@@ -3,11 +3,9 @@ rules_version = '2';
 /* ══════════════════════════════════════════════════════════════════
    CLAM — Firestore-Sicherheitsregeln
 
-   Es geht hier um Gesundheitsdaten nach Art. 9 DSGVO. Die Grundregel
-   ist deshalb streng und kennt keine Ausnahme: jede Nutzerin und jeder
-   Nutzer kommt ausschließlich an die eigenen Daten. Es gibt keine
-   Freigabe zwischen Konten, keinen Lesezugriff für Praxen und keine
-   öffentlichen Sammlungen.
+   Es geht hier um Gesundheitsdaten nach Art. 9 DSGVO. Die Grundregel:
+   Nutzer lesen und schreiben ihre Daten selbst. Eine bestätigte Praxis
+   erhält nach Patientenfreigabe begrenzten Lesezugriff.
 
    Seit der Praxisansicht gibt es einen zweiten Zugriffsweg: eine Praxis
    sieht die Daten der Patienten, die sie über ihren Code freigeschaltet
@@ -15,9 +13,8 @@ rules_version = '2';
    erteilt also der Patient und kann ihn jederzeit wieder lösen. Fotos
    bleiben davon ausgenommen.
 
-   Der Ingest-Endpunkt (/api/ingest) schreibt mit dem Admin-SDK und
-   umgeht diese Regeln — das ist der einzige Weg an den Daten vorbei und
-   deshalb über einen persönlichen Token abgesichert.
+   Server-Endpunkte schreiben mit dem Admin-SDK und prüfen Authentifizierung
+   bzw. einen privaten Import-Schlüssel selbst.
 
    Firebase Storage wird nicht verwendet: es setzt den Blaze-Plan voraus.
    Auch die Fotos liegen deshalb in Firestore.
@@ -41,7 +38,7 @@ service cloud.firestore {
        Frontend entscheidet nur, ob das Menü zu sehen ist; wer sie im
        Browser aushebelt, kommt hier trotzdem nicht durch. */
     function isAdmin() {
-      return request.auth != null && (
+      return request.auth != null && request.auth.token.email_verified == true && (
         request.auth.token.email == 'jan.rentzsch@googlemail.com' ||
         (exists(/databases/$(database)/documents/config/admins) &&
          request.auth.token.email in
@@ -54,6 +51,11 @@ service cloud.firestore {
     match /config/catalog {
       allow read:  if request.auth != null;
       allow write: if isAdmin();
+    }
+
+    match /catalogVersions/{version} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
     }
 
     /* Die Adminliste ist absichtlich NICHT allgemein lesbar — sie enthält
@@ -70,7 +72,12 @@ service cloud.firestore {
        darf nur die Praxis selbst. */
     match /doctors/{uid} {
       allow read:  if request.auth != null;
-      allow write: if isOwner(uid);
+      allow create: if isOwner(uid) && request.resource.data.verified == false;
+      /* Jede selbst vorgenommene Stammdatenänderung entzieht die Freigabe.
+         Nur Admins können verified wieder auf true setzen. */
+      allow update: if isAdmin() ||
+        (isOwner(uid) && request.resource.data.verified == false);
+      allow delete: if isAdmin();
     }
 
     /* Nachschlagetabelle Code → Praxis. Lesbar für Angemeldete, damit ein
@@ -90,30 +97,35 @@ service cloud.firestore {
        also der Patient, nicht die Praxis. Löst er sie, endet der Zugriff
        mit dem nächsten Lesevorgang. */
     function linkedDoctor(uid) {
-      return request.auth != null
+      return request.auth != null && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/doctors/$(request.auth.uid))
+        && get(/databases/$(database)/documents/doctors/$(request.auth.uid)).data.verified == true
         && exists(/databases/$(database)/documents/users/$(uid))
-        && get(/databases/$(database)/documents/users/$(uid)).data.doctorUid
+        && get(/databases/$(database)/documents/users/$(uid)).data.shareDoctorUid
              == request.auth.uid;
     }
 
     match /users/{uid} {
       /* Die zweite Bedingung trägt zugleich die Abfrage der Praxis
-         (where doctorUid == eigene uid): Firestore prüft die Regel gegen
+         (where shareDoctorUid == eigene uid): Firestore prüft die Regel gegen
          jedes Ergebnis, und die Einschränkung stellt sicher, dass nur
          verknüpfte Patienten zurückkommen. */
       allow read: if isOwner(uid)
-                  || (request.auth != null && resource.data.doctorUid == request.auth.uid);
+                  || (request.auth != null && request.auth.token.email_verified == true
+                      && resource.data.shareDoctorUid == request.auth.uid
+                      && exists(/databases/$(database)/documents/doctors/$(request.auth.uid))
+                      && get(/databases/$(database)/documents/doctors/$(request.auth.uid)).data.verified == true);
       allow write: if isOwner(uid);
-
-      /* Der Ingest-Token darf vom Client gesetzt werden — er wird dort
-         erzeugt. Er ist ein Zufallswert und kein Geheimnis, das der
-         Server vergibt. */
 
       match /days/{dayKey} {
         /* Die Praxis liest den Verlauf, schreibt aber nie hinein. Was in
            der App steht, bleibt die Darstellung des Patienten. */
         allow read:  if isOwner(uid) || linkedDoctor(uid);
         allow write: if isOwner(uid);
+      }
+
+      match /private/{privateId} {
+        allow read, write: if isOwner(uid);
       }
 
       match /photos/{photoId} {
@@ -139,6 +151,15 @@ service cloud.firestore {
         allow read, create, delete: if isOwner(uid);
         allow update: if false;
       }
+    }
+
+    match /ingestTokens/{hash} {
+      allow read: if false;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.uid == request.auth.uid;
+      allow update: if false;
     }
 
     /* Alles, was hier nicht ausdrücklich erlaubt ist, ist verboten. */

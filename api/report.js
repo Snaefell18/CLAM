@@ -1,8 +1,7 @@
 /* ══════════════════════════════════════════════════════════════════
    /api/report.js — Vercel Serverless Function
 
-   Erzeugt den Bericht, der an die Praxis geht — die Stelle, an der der
-   Closed Loop die App verlässt.
+   Erzeugt einen Bericht, den die betroffene Person selbst weitergeben kann.
 
    Der Maßstab für diesen Text ist streng: Eine rheumatologische Praxis
    hat pro Patient wenige Minuten. Ein Bericht, der erst gelesen werden
@@ -11,18 +10,20 @@
 
    Der Bericht wird NICHT automatisch versendet. Er wird erzeugt, dem
    Patienten vollständig gezeigt und erst nach dessen Bestätigung
-   abgeschickt (siehe openReport in app.js).
+   gespeichert (siehe openReport in app.js).
 
    Health-Check: /api/report im Browser aufrufen.
    ══════════════════════════════════════════════════════════════════ */
 
 import { readBody, callClaude, healthCheck, GUARDRAILS } from "./_claude.js";
 
+import { authorize } from "./_auth.js";
+
 export const config = { maxDuration: 40 };
 
-const SYSTEM = `Du schreibst eine Verlaufsmeldung, die von einer Patienten-App an
-eine behandelnde Praxis geht — meist Rheumatologie, Gastroenterologie oder
-Neurologie.
+const SYSTEM = `Du schreibst eine Verlaufsmeldung, die eine betroffene Person
+selbst an ihre behandelnde Praxis weitergeben kann. Die App speichert den Text,
+versendet ihn aber nicht. Behaupte keine Übermittlung oder Kenntnisnahme.
 
 Empfänger ist ärztliches Fachpersonal mit wenig Zeit. Danach richtet sich alles:
 
@@ -53,8 +54,8 @@ Aufbau von "summary" (reiner Text, keine Markdown-Auszeichnung):
 
   Zum Schluss ein Absatz "Einordnung" mit genau diesem Inhalt, sinngemäß:
   Die Werte stammen aus einer Patienten-App, die Abweichungen von
-  individuellen Ausgangswerten misst. Es handelt sich nicht um ein
-  Medizinprodukt, die Einstufung ist keine Diagnose, und die zugrunde
+  individuellen Ausgangswerten misst. Die Medizinprodukte-Einordnung steht noch aus; die Einstufung ist keine
+  Diagnose, und die zugrunde
   liegenden Schwellenwerte sind nicht klinisch validiert.
 
 Ton: sachlich, knapp, fachsprachlich korrekt. Keine Anrede, keine Grußformel,
@@ -64,42 +65,16 @@ Was du NICHT tust:
 · Keine Verdachtsdiagnose stellen.
 · Keine Therapie vorschlagen und keine Dosis nennen.
 · Keine Dringlichkeit behaupten, die die Daten nicht hergeben.
-
-"suggested" ist eine kurze Liste möglicher diagnostischer Schritte — als
-Angebot an die Praxis, nicht als Anweisung. Sinnvoll sind:
-· Entzündungsparameter (CRP, BSG) bei jeder Verdachtslage.
-· Ein Wirkstoffspiegel (Talspiegel) und Anti-Drug-Antikörper NUR, wenn in der
-  Medikation ein Präparat steht, für das TDM etabliert ist — das ist im
-  Anfragetext vermerkt. Besonders naheliegend, wenn der Risikoanstieg gegen
-  Ende des Dosierungsintervalls fällt: dann ist ein Wirkverlust eine
-  plausible Erklärung.
-· Calprotectin im Stuhl bei Darmbeteiligung.
-· Bildgebung nur, wenn ein Gelenkbefund das nahelegt.
-Nenne höchstens vier, jeweils mit einer Begründung in einem Halbsatz.
-Steht kein TDM-fähiges Präparat in der Medikation, schlägst du weder
-Spiegelbestimmung noch Antikörper vor.
+· Keine Untersuchungen oder Wirkstoffspiegel empfehlen.
 ${GUARDRAILS}`;
 
 const SCHEMA = {
   type:"object",
   properties:{
     summary:{ type:"string",
-      description:"Der vollständige Berichtstext, reiner Text mit Absätzen." },
-    suggested:{
-      type:"array",
-      description:"Höchstens vier vorgeschlagene diagnostische Schritte.",
-      items:{
-        type:"object",
-        properties:{
-          test:{ type:"string", description:"Die Untersuchung." },
-          why: { type:"string", description:"Begründung in einem Halbsatz." }
-        },
-        required:["test","why"],
-        additionalProperties:false
-      }
-    }
+      description:"Der vollständige Berichtstext, reiner Text mit Absätzen." }
   },
-  required:["summary","suggested"],
+  required:["summary"],
   additionalProperties:false
 };
 
@@ -111,6 +86,7 @@ export default async function handler(req, res){
     const body = await readBody(req);
     if (!body) return res.status(400).json({ error:"bad_body",
       message:"Anfrage konnte nicht gelesen werden." });
+    if (!await authorize(req, res, "report", body)) return;
 
     const {
       condition, conditionName, date, level, prob, confidence, baselineDays,
@@ -125,15 +101,6 @@ export default async function handler(req, res){
 
     if (drugs.length){
       L.push(`Medikation: ${drugs.map(d => d.name).join(", ")}`);
-      /* Ausdrücklich hinschreiben, für welche Präparate TDM überhaupt
-         etabliert ist — sonst schlägt das Modell Spiegelbestimmungen
-         auch bei Methotrexat vor, wo das unüblich wäre. */
-      const tdm = drugs.filter(d => d.tdm).map(d => d.name);
-      const ada = drugs.filter(d => d.ada).map(d => d.name);
-      L.push(tdm.length
-        ? `Für folgende Präparate ist eine Spiegelbestimmung etabliert: ${tdm.join(", ")}.`
-        : `Für keines der Präparate ist eine Spiegelbestimmung etabliert.`);
-      if (ada.length) L.push(`Anti-Drug-Antikörper sind relevant bei: ${ada.join(", ")}.`);
     }
     if (Number.isFinite(daysToNextDose)){
       L.push(daysToNextDose >= 0
@@ -142,8 +109,8 @@ export default async function handler(req, res){
     }
 
     L.push("");
-    L.push(`Eingestuftes Schubrisiko: ${level} (${prob} %)`);
-    L.push(`Aussagekraft der Einstufung: ${confidence} %, Baseline aus ${baselineDays} Tagen.`);
+    L.push(`Auffälligkeit gegenüber der Baseline: ${level}`);
+    L.push(`Grundlage: ${baselineDays} Vergleichstage; Einstufung nicht klinisch validiert.`);
 
     L.push("");
     L.push("Abweichungen gegenüber der individuellen Baseline (stärkster Beitrag zuerst):");
@@ -154,7 +121,7 @@ export default async function handler(req, res){
     if (trend.length){
       L.push("");
       L.push("Risikoverlauf der letzten Tage:");
-      L.push(trend.map(t => `${t.date}: ${t.prob} %`).join(" · "));
+      L.push(trend.map(t => `${t.date}: ${t.level}`).join(" · "));
     }
 
     if (followUp.length){
@@ -201,8 +168,7 @@ export default async function handler(req, res){
     console.error("UNHANDLED FUNCTION ERROR", e);
     return res.status(500).json({
       error:"internal_function_error",
-      message:String(e?.message || e),
-      stack:String(e?.stack || "").split("\n").slice(0,4).join(" | ")
+      message:"Die Funktion konnte nicht ausgeführt werden."
     });
   }
 }
