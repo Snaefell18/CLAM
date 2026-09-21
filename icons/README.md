@@ -41,6 +41,15 @@ SVG-Dateien hier sind die gepflegte Quelle und die Vorlage für die PNGs.
 
 Der Verlauf läuft leicht diagonal von unten links nach oben rechts.
 
+## Geometrie der rechten Rundung
+
+Der rechte Bogen und die Kugel haben denselben Mittelpunkt `(164, 50)`.
+Bei einem Bogenradius von 50, einer Strichstärke von 28 und einem Kugelradius
+von 21 bleibt dazwischen ein gleichmäßiger freier Abstand von 15 SVG-Einheiten.
+Der Kreisbogen verläuft symmetrisch von 155° bis 25° über die untere Hälfte;
+der Übergang von links schließt tangential an. Diese Geometrie ist auch in
+den beiden eingebetteten Marken in `index.html` und im Icon-Generator enthalten.
+
 ## PNGs neu erzeugen
 
 ```bash

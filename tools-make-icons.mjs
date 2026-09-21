@@ -12,8 +12,8 @@ const OUT = new URL("./icons", import.meta.url).pathname;
 const MARK = (color, scale) => `
   <svg viewBox="0 0 224 136" style="width:${scale}%;height:auto;overflow:visible">
     <path fill="none" stroke="${color}" stroke-width="28" stroke-linecap="round"
-          d="M90.4 107A46 46 0 1 1 90.4 29C116 43 120 94 150 101C176 106 191 97 204 74"/>
-    <circle cx="168" cy="48" r="21" fill="${color}"/>
+          d="M90.4 107A46 46 0 1 1 90.4 29C106.6 39.15 109.951 52.401 118.684611 71.130913A50 50 0 0 0 209.315389 71.130913"/>
+    <circle cx="164" cy="50" r="21" fill="${color}"/>
   </svg>`;
 
 /* radius: Eckenradius in Prozent der Kantenlänge. 0 = randlos. */
