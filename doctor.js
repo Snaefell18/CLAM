@@ -30,17 +30,17 @@
    ══════════════════════════════════════════════════════════════════ */
 
 import {
-  doc, getDoc, setDoc, collection, getDocs, query, where
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+  doc, getDoc, setDoc, collection, getDocs, query, where, documentId, sendEmailVerification, DEMO_MODE
+} from "./backend.js";
 
 import { CONDITIONS, DRUGS, JOINTS, LABS, ICON } from "./data.js";
-import { SIGNALS, LEVELS, GATES, assess, assessSeries, lastKeys, probPct, deltaText } from "./risk.js";
+import { SIGNALS, LEVELS, GATES, assess, assessSeries, lastKeys, dateToKey, shiftKey, deltaText } from "./risk.js";
 
-const ADVICE_ENDPOINT = "/api/advice";
 
 let ctx = null;          // { db, auth, ui }
 let practice = null;     // das eigene Praxisdokument
 let patients = [];       // verknüpfte Patienten, Kurzfassung
+let patientsError = "";
 
 export function initDoctor(c){ ctx = c; }
 export const getPractice = () => practice;
@@ -176,13 +176,16 @@ export async function openDoctorHome(){
 
 async function loadPatients(){
   patients = [];
+  patientsError = "";
+  if (practice?.verified !== true || !ctx.auth.currentUser?.emailVerified) return false;
   try {
     const snap = await getDocs(query(
       collection(ctx.db, "users"),
       where("shareDoctorUid", "==", ctx.auth.currentUser.uid)));
     snap.forEach(d => patients.push({ uid:d.id, ...d.data() }));
   } catch (e){
-    console.warn("Patienten nicht geladen:", e?.message || e);
+    patientsError = "Patientendaten konnten nicht geladen werden. Bitte Verbindung und Praxisfreigabe prüfen.";
+    return false;
   }
   /* Dringendstes zuerst: wer ein hohes Risiko trägt, gehört nach oben.
      Innerhalb einer Stufe die höhere interne Kennzahl zuerst. */
@@ -193,6 +196,7 @@ async function loadPatients(){
     if (ra !== rb) return ra - rb;
     return (b.lastRisk?.prob ?? 0) - (a.lastRisk?.prob ?? 0);
   });
+  return true;
 }
 
 function renderDoctorHome(){
@@ -220,6 +224,10 @@ function renderDoctorHome(){
   /* Der Code steht ganz oben und ist mit einem Griff kopiert — er wird
      im Sprechzimmer weitergegeben, nicht gesucht. */
   const body = `
+    ${patientsError ? `<div class="flag"><span class="tx"><b>Laden fehlgeschlagen</b>${esc(patientsError)}</span></div>` : ""}
+    ${!ctx.auth.currentUser?.emailVerified ? `<div class="flag"><span class="tx"><b>E-Mail noch nicht bestätigt</b>
+      Bitte bestätige deine Adresse und klicke anschließend auf Aktualisieren.</span></div>
+      <button class="btn btn-glass btn-sm" id="doc-verify">Bestätigungslink senden</button>` : ""}
     ${practice?.verified !== true ? `<div class="flag"><span class="dot"></span>
       <span class="tx"><b>Praxisprüfung ausstehend</b>
       Der Praxiszugang wird erst nach einer Identitätsprüfung freigeschaltet.</span></div>` : ""}
@@ -240,7 +248,7 @@ function renderDoctorHome(){
     ${patients.length ? `
       <p class="group-label" style="margin-top:24px">Verknüpfte Patienten</p>
       ${patients.map(p => patientRow(p)).join("")}
-    ` : `
+    ` : patientsError ? "" : `
       <div class="glass card" style="margin-top:24px">
         <h3>Noch keine Patienten verknüpft</h3>
         <p class="sub" style="margin-top:8px">Gib deinen Code
@@ -257,7 +265,19 @@ function renderDoctorHome(){
 
   $("#doc-body").innerHTML = body;
 
-  $("#doc-refresh").onclick  = async () => { await loadPatients(); renderDoctorHome(); ctx.ui.toast("Aktualisiert."); };
+  $("#doc-refresh").onclick = async () => {
+    try {
+      await ctx.auth.currentUser?.reload?.();
+      if (!DEMO_MODE) await ctx.auth.currentUser?.getIdToken(true);
+      await loadPractice(ctx.db,ctx.auth.currentUser.uid);
+      const ok = await loadPatients(); renderDoctorHome();
+      ctx.ui.toast(ok ? "Aktualisiert." : "Zugriff oder Verbindung bitte prüfen.");
+    } catch { ctx.ui.toast("Aktualisieren fehlgeschlagen."); }
+  };
+  const verify = $("#doc-verify");
+  if (verify) verify.onclick = () => sendEmailVerification(ctx.auth.currentUser)
+    .then(() => ctx.ui.toast("Bestätigungslink versendet."))
+    .catch(() => ctx.ui.toast("Link konnte nicht versendet werden."));
   $("#doc-settings").onclick = openDoctorSettings;
   $("#doc-code").onclick = async () => {
     try { await navigator.clipboard.writeText(practice.code); ctx.ui.toast("Code kopiert."); }
@@ -291,7 +311,7 @@ const MO = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","
 function fmtDate(key){
   const d = new Date(`${key}T12:00:00`);
   if (isNaN(d)) return key;
-  const today = new Date().toISOString().slice(0,10);
+  const today = dateToKey(new Date());
   if (key === today) return "heute";
   return `${d.getDate()}. ${MO[d.getMonth()]}`;
 }
@@ -309,7 +329,8 @@ async function openPatient(uid){
 
   let days = [];
   try {
-    const snap = await getDocs(collection(ctx.db, "users", uid, "days"));
+    const snap = await getDocs(query(collection(ctx.db, "users", uid, "days"),
+      where(documentId(), ">=", shiftKey(dateToKey(new Date()),-90))));
     snap.forEach(d => days.push({ key:d.id, ...d.data() }));
     days.sort((a,b) => a.key.localeCompare(b.key));
   } catch {
@@ -318,7 +339,7 @@ async function openPatient(uid){
         wurde die Verknüpfung gelöst.</p>`);
   }
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = dateToKey(new Date());
   const assessed = assess(days, today, assess(days, shift(today, -1)));
   const r = p.condition === "ra" ? assessed :
     { ...assessed, level:"unsupported", prob:null, drivers:[] };
@@ -353,7 +374,8 @@ async function openPatient(uid){
             <span class="val">${deltaText(d.id, d)}</span>
           </div>`).join("")}
       </div>` : `
-      <div class="glass card"><p class="sub">Keine auffälligen Abweichungen.</p></div>`}
+      <div class="glass card"><p class="sub">${r.prob == null
+        ? "Für diesen Tag ist keine Einstufung verfügbar." : "Keine auffälligen Abweichungen in den erfassten Kennzahlen."}</p></div>`}
 
     ${meds.length ? `
       <p class="group-label">Medikation</p>
@@ -376,11 +398,7 @@ async function openPatient(uid){
     </div>`);
 }
 
-const shift = (key, n) => {
-  const d = new Date(`${key}T12:00:00`);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0,10);
-};
+const shift = shiftKey;
 
 function fmt(id, v){
   if (!Number.isFinite(v)) return "—";
@@ -428,6 +446,7 @@ function followUpBlock(day){
   if (!fu?.answers?.length) return "";
   return `
     <p class="group-label">Gezielte Nachfragen</p>
+    ${fu.urgent ? `<div class="flag"><span class="tx"><b>Dringlichkeitshinweis</b>${esc(fu.urgent)}</span></div>` : ""}
     <div class="glass drv">
       ${fu.answers.map(a => `
         <div class="drv-item">
@@ -480,125 +499,6 @@ function photoBlock(days){
           </span>
         </div>`).join("")}
     </div>`;
-}
-
-/* ─────────────────  6. EMPFEHLUNG  ─────────────────
-   Zielgruppe ist hier ärztliches Personal, nicht der Patient. Der
-   Endpunkt darf deshalb fachlich werden — er bleibt aber
-   Entscheidungsunterstützung: was tatsächlich geschieht, entscheidet
-   die Praxis. */
-
-async function fetchAdvice(p, r, series, days, last){
-  $("#adv-go").disabled = true;
-  $("#adv-out").innerHTML = `<div class="analyzing"><span class="spin"></span>
-    Empfehlung wird erstellt …</div>`;
-
-  const payload = {
-    condition: CONDITIONS.find(c => c.id === p.condition)?.n || p.conditionName || "Autoimmunerkrankung",
-    level: r.level,
-    prob: probPct(r.prob),
-    confidence: Math.round((r.confidence || 0) * 100),
-    baselineDays: r.baselineDays,
-    drivers: (r.drivers || []).map(d => ({
-      signal: SIGNALS[d.id].label, baseline: fmt(d.id, d.baseline),
-      current: fmt(d.id, d.value), delta: deltaText(d.id, d), share: Math.round(d.share * 100)
-    })),
-    trend: series.filter(s => s.prob != null)
-      .map(s => ({ date:s.key, prob:probPct(s.prob), level:s.level })),
-    drugs: (p.drugs || []).map(id => {
-      const d = DRUGS.find(x => x.id === id);
-      return d ? { name:d.n, group:d.g, tdm:d.tdm, ada:d.ada, every:d.every } : null;
-    }).filter(Boolean),
-    daysToNextDose: p.nextDose
-      ? Math.round((new Date(`${p.nextDose}T12:00:00`) - new Date()) / 86400000) : null,
-    joints: (p.joints || []).map(id => JOINTS.find(j => j.id === id)?.n).filter(Boolean),
-    followUp: last?.followUp?.answers || [],
-    followUpNote: last?.followUp?.note || null,
-    labs: labsFor(days),
-    photos: (last?.photos || []).map(x => ({
-      region: JOINTS.find(j => j.id === x.region)?.n || x.region,
-      findings: x.findings, change: x.change
-    }))
-  };
-
-  try {
-    const token = await ctx.auth.currentUser?.getIdToken();
-    if (!token) throw new Error("Bitte erneut anmelden.");
-    const res = await fetch(ADVICE_ENDPOINT, {
-      method:"POST",
-      headers:{ "content-type":"application/json", authorization:`Bearer ${token}` },
-      body: JSON.stringify(payload)
-    });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.message || "Abruf fehlgeschlagen");
-    showAdvice(d);
-  } catch (e){
-    $("#adv-out").innerHTML = `<p class="note" style="color:var(--bad)">
-      ${esc(e.message || "Die Empfehlung konnte nicht abgerufen werden.")}</p>`;
-    $("#adv-go").disabled = false;
-  }
-}
-
-function labsFor(days){
-  const out = {};
-  for (let i = days.length - 1; i >= 0; i--){
-    const l = days[i].labs;
-    if (!l) continue;
-    for (const [k, v] of Object.entries(l))
-      if (out[k] === undefined && Number.isFinite(v)){
-        const def = LABS.find(x => x.id === k);
-        out[def?.n || k] = { value:v, unit:def?.unit || "", date:days[i].key };
-      }
-  }
-  return out;
-}
-
-function showAdvice(d){
-  $("#adv-out").innerHTML = `
-    <p class="group-label" style="margin-top:22px">Einschätzung</p>
-    <div class="report">${esc(d.assessment || "")}</div>
-
-    ${d.diagnostics?.length ? `
-      <p class="group-label">Diagnostik zur Erwägung</p>
-      <div class="glass drv">
-        ${d.diagnostics.map(x => `
-          <div class="drv-item">
-            <span class="tx"><b>${esc(x.test)}</b><span>${esc(x.why)}</span></span>
-          </div>`).join("")}
-      </div>` : ""}
-
-    ${d.options?.length ? `
-      <p class="group-label">Vorgehensoptionen</p>
-      <div class="glass drv">
-        ${d.options.map(x => `
-          <div class="drv-item">
-            <span class="tx"><b>${esc(x.option)}</b><span>${esc(x.rationale)}</span></span>
-          </div>`).join("")}
-      </div>` : ""}
-
-    ${d.urgency ? `
-      <div class="flag" style="margin-top:16px">
-        <span class="dot" style="background:var(--lvl-elevated-soft)"></span>
-        <span class="tx"><b>Zeitlicher Rahmen</b>${esc(d.urgency)}</span>
-      </div>` : ""}
-
-    <div class="disclaimer">
-      ${ICON.info}
-      <p>Automatisch erzeugte Entscheidungsunterstützung auf Basis der
-         App-Daten. Keine Diagnose, keine Therapieanordnung. Indikation,
-         Auswahl und Dosierung liegen bei der behandelnden Person.</p>
-    </div>`;
-
-  $("#sheet-foot").innerHTML = `
-    <button class="btn btn-glass btn-sm" id="adv-copy">Text kopieren</button>`;
-  $("#adv-copy").onclick = async () => {
-    const parts = [d.assessment || ""];
-    if (d.diagnostics?.length) parts.push("\nDiagnostik:\n" + d.diagnostics.map(x => `· ${x.test} — ${x.why}`).join("\n"));
-    if (d.options?.length) parts.push("\nOptionen:\n" + d.options.map(x => `· ${x.option} — ${x.rationale}`).join("\n"));
-    if (d.urgency) parts.push("\nZeitlicher Rahmen: " + d.urgency);
-    try { await navigator.clipboard.writeText(parts.join("\n")); ctx.ui.toast("Kopiert."); }
-    catch { ctx.ui.toast("Kopieren nicht möglich."); }
-  };
 }
 
 /* ─────────────────  7. EINSTELLUNGEN  ───────────────── */

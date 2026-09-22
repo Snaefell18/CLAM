@@ -39,17 +39,18 @@ const API = {
 
 /* ─────────────────  2. FIREBASE  ───────────────── */
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { initializeApp } from "./backend.js";
+import { DEMO_MODE, demo, sendPasswordResetEmail } from "./backend.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
   deleteUser, reauthenticateWithCredential, reauthenticateWithPopup, EmailAuthProvider,
   sendEmailVerification
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+} from "./backend.js";
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs,
   query, orderBy, limit, addDoc, updateDoc, deleteField, writeBatch, where, documentId
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+} from "./backend.js";
 import {
   assess, assessSeries, lastKeys, shiftKey, dateToKey,
   SIGNALS, SIGNAL_IDS, GATES, LEVELS, deltaText, probPct
@@ -70,6 +71,7 @@ const fb    = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fb);
 
 async function apiPost(endpoint, payload){
+  if (DEMO_MODE) return demo.demoResponse(endpoint, payload);
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Bitte erneut anmelden.");
   return fetch(endpoint, {
@@ -204,7 +206,7 @@ initAdmin({
   ui:{ openSheet:(...a) => openSheet(...a), closeSheet:() => closeSheet(), toast:m => toast(m) },
   /* Nach einer Katalogänderung muss der Startbildschirm neu rechnen:
      geänderte Gewichte oder Schwellen verschieben das Risiko sofort. */
-  onSaved: () => { recompute(); renderHome(); }
+  onSaved: catalog => { S.modelVersion = catalog.version; recompute(); renderHome(); }
 });
 
 /* ─────────────────  5. AUTH  ───────────────── */
@@ -267,8 +269,16 @@ $("#li-go").onclick = () => {
   });
 };
 $("#li-google").onclick = () => doAuth(() => signInWithPopup(auth, gprov));
+$("#li-reset").onclick = () => doAuth(async () => {
+  const email = $("#li-mail").value.trim();
+  if (!email) { $("#li-err").textContent = "Bitte zuerst deine E-Mail-Adresse eingeben."; return; }
+  await sendPasswordResetEmail(auth, email);
+  $("#li-err").textContent = "Falls ein Konto besteht, erhältst du einen Link zum Zurücksetzen.";
+});
 
 onAuthStateChanged(auth, async user => {
+  closeSheet();
+  try {
   if (!user){
     S.uid = null; S.profile = null; S.days = [];
     $("#install").classList.remove("on");
@@ -355,6 +365,12 @@ onAuthStateChanged(auth, async user => {
     screen("s-ob");
   }
   hideBoot();
+  } catch {
+    S.profile = null; S.days = []; S.risk = null;
+    $("#li-err").textContent = "Deine Daten konnten nicht geladen werden. Bitte erneut laden oder die Demo öffnen.";
+    screen("s-login");
+    hideBoot();
+  }
 });
 
 /* ─────────────────  6. DATEN  ─────────────────
@@ -377,8 +393,21 @@ onAuthStateChanged(auth, async user => {
    Der Tag ist die Einheit, in der alles zusammenläuft — deshalb ein
    Dokument pro Tag statt getrennter Sammlungen je Datenart. */
 
-async function saveProfile(){
-  await setDoc(doc(db, "users", S.uid), S.profile, { merge:true });
+async function saveProfile(updateRisk = false){
+  // Do not overwrite a newer import summary with an old copy from login.
+  const { lastRisk:oldSummary, ...profile } = S.profile;
+  if (updateRisk && profile.doctorUid){
+    const key = todayKey();
+    const r = assess(S.days, key, assess(S.days, shiftKey(key,-1)));
+    const supported = profile.condition === "ra";
+    profile.lastRisk = {
+      modelVersion:S.modelVersion, level:supported ? r.level : "unsupported",
+      prob:supported ? r.prob : null, confidence:supported ? r.confidence : null,
+      drivers:supported ? r.drivers.slice(0,3).map(d => d.id) : [],
+      date:key, at:new Date().toISOString()
+    };
+  }
+  await setDoc(doc(db, "users", S.uid), profile, { merge:true });
 }
 
 /* Lädt das Fenster, aus dem Baseline und Verlaufskurve gerechnet werden.
@@ -1130,6 +1159,13 @@ function openVitals(){
 let photoData = null, photoMime = "image/jpeg";
 
 function openPhoto(){
+  if (DEMO_MODE){
+    openSheet("Fotodokumentation", `<p class="sub">Im Echtbetrieb können Aufnahmen als
+      Verlauf dokumentiert und nach Einwilligung beschrieben werden.</p>
+      <p class="note">Die Jury-Demo verwendet ausschließlich synthetische Daten.
+      Kamera, Upload und Live-KI sind hier nicht angebunden.</p>`);
+    return;
+  }
   if (!S.profile.consentShare){
     openSheet("Foto dokumentieren", `<p class="note">Die Bildauswertung benötigt deine
       Einwilligung zur KI-Auswertung. Du kannst sie in den Einstellungen aktivieren.</p>`);
@@ -1522,7 +1558,7 @@ async function openFollowUp(){
     closeSheet();
 
     const hits = followUp.answers.filter(a => a.hit).length;
-    toast(hits ? "Antworten gespeichert." : "Antworten gespeichert — nichts Auffälliges.");
+    toast("Antworten gespeichert. Sie ersetzen keine ärztliche Einordnung.");
     // Direkt weiter zum Bericht, wenn es etwas zu melden gibt
     if (hits >= 1) setTimeout(openReport, 800);
   };
@@ -1798,13 +1834,37 @@ function openHistory(){
     $$("#hist-seg button").forEach(x => x.classList.toggle("on", x === b));
     if (b.dataset.v === "risk") $("#hist-out").innerHTML = riskHistory(pts, withData);
     else if (b.dataset.v === "labs") $("#hist-out").innerHTML = labHistory();
-    else $("#hist-out").innerHTML = await reportHistory();
+    else {
+      const markup = await reportHistory();
+      if (!b.isConnected || !b.classList.contains("on")) return;
+      $("#hist-out").innerHTML = markup;
+    }
     bindHistItems();
   });
   bindHistItems();
 }
 
 function bindHistItems(){
+  $$("[data-report]", $("#sheet-body")).forEach(el => el.onclick = () => {
+    const record = reportCache.get(el.dataset.report);
+    if (!record) return;
+    openSheet("Gespeicherter Bericht", `<p class="note">Nur gespeichert – bitte selbst an
+      deine Praxis weitergeben.</p><div class="report">${esc(record.summary || "")}</div>`, `
+      <button class="btn btn-primary" id="saved-copy">Text kopieren</button>
+      <button class="btn btn-glass" id="saved-download">Als Text herunterladen</button>
+      <button class="btn btn-ghost" id="saved-back">Zurück zum Verlauf</button>`);
+    $("#saved-copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(record.summary || ""); toast("Bericht kopiert."); }
+      catch { toast("Kopieren nicht möglich. Du kannst den Bericht herunterladen."); }
+    };
+    $("#saved-download").onclick = () => {
+      const url = URL.createObjectURL(new Blob([record.summary || ""], { type:"text/plain;charset=utf-8" }));
+      const a = document.createElement("a"); a.href = url;
+      a.download = `clam-bericht-${record.dayKey}.txt`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url),1000);
+    };
+    $("#saved-back").onclick = openHistory;
+  });
   $$(".hist-item[data-key]", $("#sheet-body")).forEach(el => el.onclick = async () => {
     closeSheet();
     await openDay(el.dataset.key);
@@ -1897,6 +1957,7 @@ function labHistory(){
     </div>`).join("");
 }
 
+const reportCache = new Map();
 async function reportHistory(){
   let snap;
   try {
@@ -1906,17 +1967,19 @@ async function reportHistory(){
 
   const rows = [];
   snap.forEach(d => rows.push({ id:d.id, ...d.data() }));
+  reportCache.clear();
+  rows.forEach(r => reportCache.set(r.id,r));
   if (!rows.length) return `<p class="empty">Noch keine Meldung an die Praxis.
     Wenn dein Risiko steigt und die Nachfragen den Verdacht stützen, kannst du
     von hier aus einen Bericht erzeugen.</p>`;
 
   return rows.map(r => `
-    <div class="hist-item">
+    <button class="hist-item" data-report="${esc(r.id)}">
       <span class="dot" style="background:${LEVELS[r.level]?.color || "#8A94A6"}"></span>
       <span class="tx"><b>${esc(longDate(r.dayKey))}</b>
         <span>${esc(r.practice?.name || "Praxisbericht")} · nur gespeichert, bitte selbst weitergeben</span></span>
       <span class="val">${LEVEL_TEXT[r.level]?.t || "—"}</span>
-    </div>`).join("");
+    </button>`).join("");
 }
 
 /* ─────────────────  17. TAGESWECHSEL  ───────────────── */
@@ -2230,7 +2293,12 @@ function openEdit(what){
 
   $("#ed-save").onclick = async () => {
     $("#ed-save").disabled = true;
-    if (what === "condition") S.profile.condition = pick.condition;
+    const previous = structuredClone(S.profile);
+    if (what === "condition"){
+      S.profile.condition = pick.condition;
+      S.profile.conditionName = null;
+      S.profile.joints = [...(CONDITIONS.find(c => c.id === pick.condition)?.joints || [])];
+    }
     if (what === "wearable")  S.profile.wearable  = pick.wearable;
     if (what === "joints")    S.profile.joints    = multi.joints;
     if (what === "drugs")     S.profile.drugs     = multi.drugs;
@@ -2245,8 +2313,8 @@ function openEdit(what){
         phone: $("#ed-pphone").value.trim()
       };
     }
-    try { await saveProfile(); renderHome(); closeSheet(); toast("Gespeichert."); }
-    catch { $("#ed-save").disabled = false; toast("Speichern fehlgeschlagen."); }
+    try { await saveProfile(what === "condition"); recompute(); renderHome(); closeSheet(); toast("Gespeichert."); }
+    catch { S.profile = previous; recompute(); $("#ed-save").disabled = false; toast("Speichern fehlgeschlagen."); }
   };
 }
 
@@ -2338,6 +2406,7 @@ function confirmLink(r){
     const name = $("#lk-name").value.trim();
     if (!name) return toast("Bitte einen Namen eintragen.");
     $("#lk-go").disabled = true;
+    const previous = structuredClone(S.profile);
     try {
       Object.assign(S.profile, {
         doctorUid:  r.uid,
@@ -2347,11 +2416,11 @@ function confirmLink(r){
         linkName:   name,
         linkedAt:   new Date().toISOString()
       });
-      await saveProfile();
-      await pushRiskSummary();
+      await saveProfile(true);
       closeSheet();
       toast("Praxis verknüpft.");
     } catch {
+      S.profile = previous;
       $("#lk-go").disabled = false;
       toast("Verknüpfen fehlgeschlagen.");
     }
@@ -2380,14 +2449,14 @@ function openSheetLinked(){
   $("#lk-off").onclick = async () => {
     $("#lk-off").disabled = true;
     try {
-      Object.assign(S.profile, {
-        doctorUid:null, shareDoctorUid:null, doctorCode:null, doctorName:null, linkedAt:null
-      });
       /* lastRisk mit weg: die Zusammenfassung existierte nur, damit die
          Praxis sie sieht. Ohne Verknüpfung hat sie dort nichts verloren. */
       await setDoc(doc(db, "users", S.uid), {
         doctorUid:null, shareDoctorUid:null, doctorCode:null, doctorName:null, linkedAt:null, lastRisk:null
       }, { merge:true });
+      Object.assign(S.profile, {
+        doctorUid:null, shareDoctorUid:null, doctorCode:null, doctorName:null, linkedAt:null, lastRisk:null
+      });
       closeSheet();
       toast("Verknüpfung gelöst.");
     } catch {
@@ -2406,6 +2475,13 @@ async function tokenHash(token){
 }
 
 async function openIngest(){
+  if (DEMO_MODE){
+    openSheet("Automatische Übernahme", `<p class="sub">Im Echtbetrieb lassen sich
+      Messwerte über einen persönlichen Import-Schlüssel übertragen.</p>
+      <p class="note">Die Demo enthält bereits synthetische Wearable-Werte.
+      Es wird kein Schlüssel für einen externen Datenimport erzeugt.</p>`);
+    return;
+  }
   let token;
   try {
     const snap = await getDoc(doc(db, "users", S.uid, "private", "ingest"));
@@ -2484,6 +2560,15 @@ async function openIngest(){
 }
 
 function openLegal(which){
+  if (DEMO_MODE){
+    openSheet("Hinweise zur Demo", `<p class="sub">Diese Präsentation verwendet erfundene
+      Profile und Messwerte. Eingaben werden nur im Arbeitsspeicher dieses Tabs gehalten
+      und beim Neuladen verworfen. Es gibt keine Übertragung an Firebase oder KI-Dienste.</p>
+      <p class="note">Bitte keine echten Gesundheitsdaten eingeben. Die Demo zeigt den
+      Entwicklungsstand; klinische Validierung und die Rechts- und Datenschutzgrundlage
+      für einen produktiven Einsatz stehen noch aus.</p>`);
+    return;
+  }
   openSheet(which === "privacy" ? "Datenschutz" : "Nutzungsbedingungen",
     `<div class="legal">${LEGAL[which]}</div>`);
 }
@@ -2523,6 +2608,10 @@ async function exportData(){
 }
 
 function openDelete(){
+  if (DEMO_MODE){
+    toast("Mit „Neustart“ oben setzt du alle Demo-Eingaben zurück.");
+    return;
+  }
   openSheet("Konto löschen", `
     <div class="glass card">
       <h3>Das lässt sich nicht rückgängig machen</h3>
@@ -2596,6 +2685,7 @@ window.addEventListener("beforeinstallprompt", e => {
 const INSTALL_KEY = "clam-install-dismissed";
 
 function maybeShowInstall(){
+  if (DEMO_MODE) return;
   const standalone = window.matchMedia("(display-mode: standalone)").matches ||
                      window.navigator.standalone;
   if (standalone) return;
@@ -2623,3 +2713,8 @@ $("#install-x").onclick = () => {
   try { localStorage.setItem(INSTALL_KEY, "1"); } catch {}
   $("#install").classList.remove("on");
 };
+
+if (DEMO_MODE){
+  const { mountDemo } = await import("./demo-ui.js");
+  mountDemo({ demo, openSheet, closeSheet, openHistory, openCheckin, openReport });
+}

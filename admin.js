@@ -27,7 +27,7 @@
 
 import {
   doc, getDoc, setDoc, collection, getDocs, updateDoc
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+} from "./backend.js";
 
 import {
   TABLES, tableById, readTable, writeTable, snapshot, validate,
@@ -268,8 +268,8 @@ async function commit(t, rows, done){
   const backup = readTable(t);
   writeTable(t, rows);
   try {
-    await saveCatalog(ctx.db, myEmail());
-    ctx.onSaved?.();
+    const saved = await saveCatalog(ctx.db, myEmail());
+    ctx.onSaved?.(saved);
     ctx.ui.toast("Gespeichert.");
     done?.();
   } catch (e){
@@ -388,8 +388,8 @@ function confirmReset(){
     const backup = snapshot();
     resetToDefaults();
     try {
-      await saveCatalog(ctx.db, myEmail());
-      ctx.onSaved?.();
+      const saved = await saveCatalog(ctx.db, myEmail());
+      ctx.onSaved?.(saved);
       ctx.ui.toast("Auf Vorgaben zurückgesetzt.");
       openAdmin();
     } catch {
@@ -546,8 +546,8 @@ async function readWorkbook(file){
     const backup = snapshot();
     for (const s of staged) writeTable(s.t, s.rows);
     try {
-      await saveCatalog(ctx.db, myEmail());
-      ctx.onSaved?.();
+      const saved = await saveCatalog(ctx.db, myEmail());
+      ctx.onSaved?.(saved);
       ctx.ui.toast(`${staged.length} ${staged.length === 1 ? "Tabelle" : "Tabellen"} übernommen.`);
       openAdmin();
     } catch {

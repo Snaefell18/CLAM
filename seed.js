@@ -32,14 +32,14 @@
    ist. Er ist damit gegen seine eigene Rechengrundlage geschlossen.
    ══════════════════════════════════════════════════════════════════ */
 
-import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { initializeApp, deleteApp } from "./backend.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, deleteUser
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+} from "./backend.js";
 import {
   getFirestore, doc, setDoc, deleteDoc, collection, getDocs
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+} from "./backend.js";
 
 import { CONDITIONS, DRUGS, ICON } from "./data.js";
 import { assess, assessSeries, lastKeys, GATES, SIGNALS, probPct } from "./risk.js";

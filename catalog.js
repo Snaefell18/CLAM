@@ -21,7 +21,7 @@
 
 import {
   doc, getDoc, setDoc, writeBatch
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+} from "./backend.js";
 
 import {
   CONDITIONS, JOINTS, DRUGS, WEARABLES, LABS, CHECKS, STIFF_STEPS, VITALS
@@ -231,6 +231,7 @@ export function writeTable(t, rows){
    leere Abschnitte bleiben auf der Vorgabe stehen — ein halb gefülltes
    Dokument darf die App nicht ausräumen. */
 export function applyCatalog(cat){
+  resetToDefaults();
   if (!cat) return;
   for (const t of TABLES){
     const rows = cat[t.id];
@@ -253,7 +254,7 @@ const CATALOG_REF = db => doc(db, "config", "catalog");
 export async function loadCatalog(db){
   try {
     const snap = await getDoc(CATALOG_REF(db));
-    if (!snap.exists()) return { ok:true, applied:false };
+    if (!snap.exists()) { resetToDefaults(); return { ok:true, applied:false }; }
     applyCatalog(snap.data());
     return { ok:true, applied:true, meta:{
       version:snap.data().version || snap.data().updatedAt || "legacy",

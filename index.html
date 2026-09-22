@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#BBE2FC">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -10,9 +10,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;700&display=swap">
+<link rel="stylesheet" href="/demo.css">
 <meta name="apple-mobile-web-app-title" content="CLAM">
 <meta name="mobile-web-app-capable" content="yes">
 
@@ -817,6 +815,9 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <p class="sub">Veränderungen früh erkennen. Rechtzeitig abklären lassen.</p>
     </div>
 
+    <a class="btn btn-primary" href="/?demo=1" style="margin-bottom:12px">Demo ohne Anmeldung starten</a>
+    <p class="hint" style="text-align:center;margin-bottom:24px">Synthetische Beispieldaten · Patient und Praxis entdecken</p>
+
     <!-- Rollenwahl. Steht über den Feldern, weil sie entscheidet, was
          nach der Anmeldung passiert — nicht darunter als Nachgedanke. -->
     <div class="seg role-seg" id="li-role">
@@ -834,6 +835,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <input id="li-pass" type="password" autocomplete="current-password" placeholder="Mindestens 6 Zeichen">
       </div>
       <button class="btn btn-primary" id="li-go">Anmelden</button>
+      <button class="btn btn-ghost" id="li-reset">Passwort vergessen?</button>
       <button class="btn btn-ghost" id="li-toggle">Noch kein Konto? Registrieren</button>
 
       <div class="divider"><span>ODER</span></div>
@@ -847,7 +849,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         </svg>
         <span>Mit Google fortfahren</span>
       </button>
-      <p class="err" id="li-err"></p>
+      <p class="err" id="li-err" role="status"></p>
     </div>
 
     <div class="disclaimer">
@@ -930,7 +932,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <!-- ══════════ SHEET ══════════ -->
 <div class="sheet-wrap" id="sheet-wrap">
   <div class="scrim" id="scrim"></div>
-  <div class="sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1">
     <div class="grab"></div>
     <div class="sheet-head">
       <h2 id="sheet-title"></h2>
@@ -943,8 +945,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script type="module" src="/app.js"></script>
+<script type="module" src="/runtime.js"></script>
 </body>
 </html>
